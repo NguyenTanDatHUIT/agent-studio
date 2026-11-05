@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "repo": "C:/Projects/MyApp",
+  "state_dir": "C:/AgentControl/myapp-state",
+  "base_ref": "HEAD",
+  "acknowledge_local_execution": false,
+  "timeout_seconds": 900,
+  "output_limit_bytes": 8000000,
+  "agent_env_allow": [],
+  "providers": {
+    "claude": {"command": ["C:/Tools/Claude/claude.exe"], "model": null},
+    "codex": {"command": ["C:/Program Files/nodejs/node.exe", "C:/Users/YOUR_USER/AppData/Roaming/npm/node_modules/@openai/codex/bin/codex.js"], "model": null}
+  },
+  "tests": {
+    "unit": ["C:/Projects/MyApp/.venv/Scripts/python.exe", "-m", "unittest", "discover", "-s", "tests"]
+  }
+}

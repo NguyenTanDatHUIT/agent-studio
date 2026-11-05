@@ -1,0 +1,84 @@
+Windows / Python 3.13.14. Offline regression; real model attempt separately recorded in LIVE-RUN.md.
+
+test_approval_export_rechecks_content 
+(tests.test_orchestrator.IntegrationTests.test_approval_export_rechecks_content) ... ok
+test_atomic_claim_between_threads (tests.test_orchestrator.IntegrationTests.test_atomic_claim_between_threads) ... ok
+test_cancel_queued_never_claimed (tests.test_orchestrator.IntegrationTests.test_cancel_queued_never_claimed) ... ok
+test_changed_after_test_invalidates_review 
+(tests.test_orchestrator.IntegrationTests.test_changed_after_test_invalidates_review) ... ok
+test_checkout_filters_rejected_before_execution 
+(tests.test_orchestrator.IntegrationTests.test_checkout_filters_rejected_before_execution) ... ok
+test_claude_full_flow (tests.test_orchestrator.IntegrationTests.test_claude_full_flow) ... ok
+test_codex_full_flow_preserves_main_and_real_index 
+(tests.test_orchestrator.IntegrationTests.test_codex_full_flow_preserves_main_and_real_index) ... ok
+test_commit_by_worker_detected (tests.test_orchestrator.IntegrationTests.test_commit_by_worker_detected) ... ok
+test_config_and_input_guards (tests.test_orchestrator.IntegrationTests.test_config_and_input_guards) ... ok
+test_deleted_and_untracked_files_are_in_patch 
+(tests.test_orchestrator.IntegrationTests.test_deleted_and_untracked_files_are_in_patch) ... ok
+test_disabled_by_default (tests.test_orchestrator.IntegrationTests.test_disabled_by_default) ... ok
+test_git_hooks_are_disabled (tests.test_orchestrator.IntegrationTests.test_git_hooks_are_disabled) ... ok
+test_protected_branch_move_blocks_review 
+(tests.test_orchestrator.IntegrationTests.test_protected_branch_move_blocks_review) ... ok
+test_provider_cannot_inject_bypass_flags 
+(tests.test_orchestrator.IntegrationTests.test_provider_cannot_inject_bypass_flags) ... ok
+test_scope_violation_fails_before_tests 
+(tests.test_orchestrator.IntegrationTests.test_scope_violation_fails_before_tests) ... ok
+test_task_lock_released_and_abandon (tests.test_orchestrator.IntegrationTests.test_task_lock_released_and_abandon) ... 
+ok
+test_test_failure_blocks_review (tests.test_orchestrator.IntegrationTests.test_test_failure_blocks_review) ... ok
+test_tests_may_not_change_sources (tests.test_orchestrator.IntegrationTests.test_tests_may_not_change_sources) ... ok
+test_two_real_runner_processes (tests.test_orchestrator.IntegrationTests.test_two_real_runner_processes) ... ok
+test_worker_failure_is_logged (tests.test_orchestrator.IntegrationTests.test_worker_failure_is_logged) ... ok
+test_wrong_digest_rejected (tests.test_orchestrator.IntegrationTests.test_wrong_digest_rejected) ... ok
+test_actual_stdio_process (tests.test_orchestrator.MCPTests.test_actual_stdio_process) ... ok
+test_lifecycle_and_tools (tests.test_orchestrator.MCPTests.test_lifecycle_and_tools) ... ok
+test_malformed_tool_names_and_unknown_fields 
+(tests.test_orchestrator.MCPTests.test_malformed_tool_names_and_unknown_fields) ... ok
+test_stdio_parse_error_and_notifications (tests.test_orchestrator.MCPTests.test_stdio_parse_error_and_notifications) 
+... ok
+test_tool_validation_and_enqueue (tests.test_orchestrator.MCPTests.test_tool_validation_and_enqueue) ... ok
+test_cancellation (tests.test_orchestrator.ProcessTests.test_cancellation) ... ok
+test_job_closes_grandchild_process (tests.test_orchestrator.ProcessTests.test_job_closes_grandchild_process) ... ok
+test_literal_shell_characters (tests.test_orchestrator.ProcessTests.test_literal_shell_characters) ... ok
+test_output_bound (tests.test_orchestrator.ProcessTests.test_output_bound) ... ok
+test_timeout (tests.test_orchestrator.ProcessTests.test_timeout) ... ok
+test_claude_usage_preserves_cache_and_error 
+(tests.test_orchestrator.UnitTests.test_claude_usage_preserves_cache_and_error) ... ok
+test_command_rejects_strings_and_shims (tests.test_orchestrator.UnitTests.test_command_rejects_strings_and_shims) ... 
+ok
+test_scope_rejects_traversal_and_protected 
+(tests.test_orchestrator.UnitTests.test_scope_rejects_traversal_and_protected) ... ok
+test_usage_does_not_estimate (tests.test_orchestrator.UnitTests.test_usage_does_not_estimate) ... ok
+test_usage_only_terminal_not_double_count 
+(tests.test_orchestrator.UnitTests.test_usage_only_terminal_not_double_count) ... ok
+test_usage_partial_metrics_stay_unknown (tests.test_orchestrator.UnitTests.test_usage_partial_metrics_stay_unknown) 
+... ok
+test_log_streams_before_child_exits (tests.test_readiness.ReadinessTests.test_log_streams_before_child_exits) ... ok
+test_managed_runner_processes_queue_and_stops 
+(tests.test_readiness.ReadinessTests.test_managed_runner_processes_queue_and_stops) ... ok
+test_managed_shutdown_cancels_active_child 
+(tests.test_readiness.ReadinessTests.test_managed_shutdown_cancels_active_child) ... ok
+test_missing_and_incompatible_provider (tests.test_readiness.ReadinessTests.test_missing_and_incompatible_provider) 
+... ok
+test_probe_does_not_return_auth_output (tests.test_readiness.ReadinessTests.test_probe_does_not_return_auth_output) 
+... ok
+test_runner_refuses_disabled_or_incompatible_execution 
+(tests.test_readiness.ReadinessTests.test_runner_refuses_disabled_or_incompatible_execution) ... ok
+test_config_excludes_credentials_and_commands (tests.test_web.WebTests.test_config_excludes_credentials_and_commands) 
+... ok
+test_logs_are_bounded_and_paths_are_restricted 
+(tests.test_web.WebTests.test_logs_are_bounded_and_paths_are_restricted) ... ok
+test_queue_list_cancel_and_activity (tests.test_web.WebTests.test_queue_list_cancel_and_activity) ... ok
+test_request_changes_does_not_rerun_worker (tests.test_web.WebTests.test_request_changes_does_not_rerun_worker) ... ok
+test_review_export_download_full_flow (tests.test_web.WebTests.test_review_export_download_full_flow) ... ok
+test_runner_status_is_authenticated_and_read_only 
+(tests.test_web.WebTests.test_runner_status_is_authenticated_and_read_only) ... ok
+test_static_assets_and_security_headers (tests.test_web.WebTests.test_static_assets_and_security_headers) ... ok
+test_token_host_and_origin_guards (tests.test_web.WebTests.test_token_host_and_origin_guards) ... ok
+test_validation_and_no_arbitrary_execution_endpoint 
+(tests.test_web.WebTests.test_validation_and_no_arbitrary_execution_endpoint) ... ok
+
+----------------------------------------------------------------------
+Ran 52 tests in 228.797s
+
+OK

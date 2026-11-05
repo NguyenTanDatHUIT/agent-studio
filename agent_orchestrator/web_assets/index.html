@@ -1,0 +1,88 @@
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Studio</title><link rel="stylesheet" href="/style.css"><script defer="" src="/icons.js"></script><script defer="" src="/app.js"></script></head><body><div id="ao-studio" lang="vi" aria-label="Agent Studio — Điều phối nhiệm vụ" class="ao-console-compact">
+  
+  <div class="ao-shell">
+    <aside class="ao-side" aria-label="Điều hướng chính">
+      <div class="ao-brand"><span class="ao-brandmark"><i data-lucide="workflow" aria-hidden="true"></i></span><span class="ao-brand-text">Agent Studio<small>ORCHESTRATOR</small></span></div>
+      <div><div class="ao-section-label">KHÔNG GIAN LÀM VIỆC</div><nav class="ao-nav">
+<button type="button" class="cursor-interaction" data-page="terminals" aria-label="Cửa sổ CMD"><i data-lucide="panels-top-left" aria-hidden="true"></i><span class="ao-nav-label">Cửa sổ CMD</span></button>
+
+        <button type="button" class="cursor-interaction" data-page="overview" aria-current="page" aria-label="Tổng quan"><i data-lucide="layout-dashboard" aria-hidden="true"></i><span class="ao-nav-label">Tổng quan</span></button>
+        <button type="button" class="cursor-interaction" data-page="flow" aria-label="Luồng tự động"><i data-lucide="git-fork" aria-hidden="true"></i><span class="ao-nav-label">Luồng tự động</span></button>
+        <button type="button" class="cursor-interaction" data-page="tasks" aria-label="Nhiệm vụ"><i data-lucide="layers" aria-hidden="true"></i><span class="ao-nav-label">Nhiệm vụ</span><span class="ao-counter">0</span></button>
+        <button type="button" class="cursor-interaction" data-page="reports" aria-label="Báo cáo"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span class="ao-nav-label">Báo cáo</span></button>
+        <button type="button" class="cursor-interaction" data-page="permissions" aria-label="Quyền và bảo vệ"><i data-lucide="shield-check" aria-hidden="true"></i><span class="ao-nav-label">Quyền &amp; bảo vệ</span></button>
+      </nav></div>
+      <div class="ao-project">Đang đọc cấu hình…</div>
+      <div class="ao-side-bottom"><div class="ao-safe"><strong><i data-lucide="lock-keyhole" aria-hidden="true"></i>Tích hợp có kiểm soát</strong>Chỉ xuất patch sau review.<br>Không tự merge main.</div><div class="ao-user"><span class="ao-avatar">A0</span><span>Claude · Agent 0<small>Điều phối &amp; review</small></span></div></div>
+    </aside>
+    <div style="min-width:0">
+      <header class="ao-top"><div class="ao-crumb"><i data-lucide="folder-git-2"></i> Workspace <span>/</span><strong data-crumb="">Cửa sổ CMD</strong></div><span class="ao-demo">ĐANG KẾT NỐI</span></header>
+      <main class="ao-main">
+        <div class="ao-heading"><div><div class="ao-kicker">LOCAL WORKSPACE</div><h1 data-title="">Trung tâm điều phối</h1><p class="ao-sub" data-sub="">Giao việc rõ ràng. Theo dõi xuyên suốt. Duyệt từng thay đổi.</p></div><button type="button" class="ao-btn ao-btn-primary cursor-interaction" data-action="new-task"><i data-lucide="plus" aria-hidden="true"></i>Tạo nhiệm vụ</button></div>
+        <div class="ao-toast" role="status" data-toast="" hidden=""></div>
+        <section data-view="terminals" class="ao-console-view" aria-label="Các cửa sổ dòng lệnh">
+  
+  <div class="ao-console-toolbar">
+    <div class="ao-layout-group" aria-label="Bố cục hàng nhân cột"><span class="ao-layout-label">Hàng × cột</span><button type="button" class="ao-layout-btn cursor-interaction" data-console-layout="1x2" aria-pressed="false">1 × 2</button><button type="button" class="ao-layout-btn cursor-interaction" data-console-layout="2x2" aria-pressed="true">2 × 2</button><button type="button" class="ao-layout-btn cursor-interaction" data-console-layout="2x3" aria-pressed="false">2 × 3</button><button type="button" class="ao-layout-btn cursor-interaction" data-console-layout="3x3" aria-pressed="false">3 × 3</button></div>
+    <div class="ao-console-mode" aria-label="Cách hiển thị cửa sổ"><button type="button" class="cursor-interaction" data-console-mode="paged" aria-pressed="true">Chia trang</button><button type="button" class="cursor-interaction" data-console-mode="all" aria-pressed="false">Tất cả</button></div>
+  </div>
+  <div class="ao-console-inventory"><div class="ao-window-range"><strong data-console-count="">0 cửa sổ</strong><span>·</span><span data-console-active="">Đang kết nối</span></div><div class="ao-actions"><button type="button" class="ao-btn cursor-interaction" data-console-action="feed">Làm mới log</button><button type="button" class="ao-btn cursor-interaction" data-console-action="add"><i data-lucide="plus" aria-hidden="true"></i>Thêm CMD</button></div></div>
+  <div class="ao-console-focusbar" data-console-focusbar="" hidden=""><span data-console-focusname=""></span><button type="button" class="ao-link cursor-interaction" data-console-action="unfocus">← Quay về lưới</button></div>
+  <div class="ao-console-announce" aria-live="polite" data-console-announce=""></div>
+  <div class="ao-terminal-grid" data-console-grid="" style="--console-cols:2"></div>
+  <div class="ao-terminal-foot"><span data-console-range=""></span><nav class="ao-terminal-pager" data-console-pager="" aria-label="Trang cửa sổ CMD"></nav></div>
+  <div class="ao-console-hint"><span>Kéo tay nắm để sắp xếp cửa sổ</span><span>Giao việc qua queue có phạm vi</span></div>
+</section>
+
+<section data-view="overview" aria-label="Tổng quan điều phối" hidden="">
+          <div class="ao-metrics">
+            <div class="ao-metric"><div class="ao-metric-label">Đang thực hiện<i data-lucide="activity" aria-hidden="true"></i></div><div class="ao-metric-value ao-number" data-metric="running">0</div><div class="ao-metric-foot">Claude &amp; Codex song song</div></div>
+            <div class="ao-metric"><div class="ao-metric-label">Chờ review<i data-lucide="scan-eye" aria-hidden="true"></i></div><div class="ao-metric-value ao-number" data-metric="review">0</div><div class="ao-metric-foot">Đã có kết quả test</div></div>
+            <div class="ao-metric"><div class="ao-metric-label">Trong hàng đợi<i data-lucide="list-ordered" aria-hidden="true"></i></div><div class="ao-metric-value ao-number" data-metric="queued">0</div><div class="ao-metric-foot">Tách worktree khi chạy</div></div>
+            <div class="ao-metric"><div class="ao-metric-label">Cần xử lý<i data-lucide="circle-alert" aria-hidden="true"></i></div><div class="ao-metric-value ao-number" data-metric="failed">0</div><div class="ao-metric-foot">Mở log để xem nguyên nhân</div></div>
+          </div>
+          <div data-flow-mount=""></div>
+          <div class="ao-bottomgrid">
+            <section class="ao-panel"></section>
+            <section class="ao-panel"><div class="ao-panel-head"><h2>Nhật ký hoạt động</h2><span class="ao-muted" style="font-size:11px">Queue local</span></div><div class="ao-events" data-events="">Chưa có sự kiện.</div></section>
+          </div>
+        </section>
+        <section data-view="flow" aria-label="Sơ đồ luồng tự động" hidden=""><div data-full-flow-mount=""></div><section class="ao-panel" style="margin-top:17px"><div class="ao-panel-head"><h2>Các điểm kiểm soát</h2><span class="ao-chip">Quy trình orchestrator</span></div><div class="ao-permission"><i data-lucide="git-branch" aria-hidden="true"></i><div>Worktree riêng cho từng task<p>Claude và Codex làm việc song song trên hai nhánh độc lập.</p></div></div><div class="ao-permission"><i data-lucide="fingerprint" aria-hidden="true"></i><div>Review gắn đúng bản đã test<p>Mã thay đổi sau khi test sẽ làm mất hiệu lực bằng chứng review.</p></div></div><div class="ao-permission"><i data-lucide="user-round-check" aria-hidden="true"></i><div>Người dùng quyết định tích hợp<p>Điểm cuối tự động là xuất patch, không phải merge main.</p></div></div></section></section>
+        <section data-view="tasks" aria-label="Danh sách nhiệm vụ" hidden="">
+          <div class="ao-panel"><div class="ao-panel-head"><div><h2>Hàng đợi nhiệm vụ</h2><p>Chọn một nhiệm vụ để xem log, test và kết quả review.</p></div><label><select class="ao-filter cursor-interaction" data-task-filter="" aria-label="Lọc nhiệm vụ"><option value="all">Tất cả trạng thái</option><option value="running">Đang thực hiện</option><option value="awaiting_review">Chờ review</option><option value="queued">Trong hàng đợi</option><option value="failed">Thất bại</option><option value="approved">Đã duyệt</option></select></label></div>
+            <form class="ao-form" data-create-form="" hidden=""><h3>Tạo nhiệm vụ</h3><div class="ao-fields"><label class="ao-field full">Mục tiêu nhiệm vụ<textarea name="prompt" required="" maxlength="40000" placeholder="Ví dụ: Bổ sung kiểm tra dữ liệu đầu vào và regression test"></textarea></label><label class="ao-field">Worker<select name="provider"><option>Codex</option><option>Claude</option></select></label><label class="ao-field">Phạm vi được sửa<input name="scope" value="src, tests" required=""></label></div><div class="ao-actions"><button class="ao-btn ao-btn-primary cursor-interaction" type="button" data-action="create-task">Thêm vào hàng đợi</button><button class="ao-btn cursor-interaction" type="button" data-action="close-form">Đóng</button><span class="ao-muted" style="font-size:11px">Worker nhận việc khi runner đang hoạt động.</span></div></form>
+            <div class="ao-tablewrap"><table class="ao-task-table"><thead><tr><th>Nhiệm vụ</th><th>Worker</th><th>Trạng thái</th><th>Test</th><th></th></tr></thead><tbody data-task-rows=""></tbody></table></div><div class="ao-task-detail" data-task-detail="" hidden=""></div>
+          </div>
+        </section>
+        <section data-view="reports" aria-label="Báo cáo vận hành" hidden=""></section>
+        <section data-view="permissions" aria-label="Quyền và bảo vệ" hidden=""></section>
+        <footer class="ao-footer"><span>Agent Studio · Local orchestrator</span><span>Windows · CLI / MCP / Web</span></footer>
+      </main>
+    </div>
+  </div>
+  <template data-flow-template="">
+    <section class="ao-panel agent-flow-section" aria-label="Sơ đồ điều phối nhiệm vụ"><div class="ao-panel-head flow-heading"><div><h2>Sơ đồ điều phối</h2><p>Luồng làm việc · Agent 0 → Workers → Tests → Review → Xuất patch</p></div><span class="flow-summary" data-flow-summary>Chưa có hoạt động</span><button type="button" class="ao-btn" data-action="next-step" hidden>Cập nhật trạng thái</button></div>
+      <div class="flow-scroller" role="region" aria-label="Sơ đồ điều phối; có thể cuộn ngang" tabindex="0">
+      <div class="ao-flow flow-board"><svg class="ao-edges flow-connections" aria-hidden="true" focusable="false"></svg>
+        <button type="button" class="ao-node flow-node flow-node--agent cursor-interaction" data-node="agent0" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Điều phối</span><span class="flow-node__id">A0</span></div><div class="ao-node-name">Agent 0</div><div class="ao-node-desc flow-node__desc">Giao việc qua MCP / web</div><div class="ao-node-foot flow-node__status">Chưa có dữ liệu</div></button>
+        <button type="button" class="ao-node flow-node flow-node--claude cursor-interaction" data-node="claude" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Worker</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Claude Worker</div><div class="ao-node-desc flow-node__desc">Chưa có nhiệm vụ</div><div class="ao-node-foot flow-node__status">Chờ giao việc</div></button>
+        <button type="button" class="ao-node flow-node flow-node--codex cursor-interaction" data-node="codex" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Worker</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Codex Worker</div><div class="ao-node-desc flow-node__desc">Chưa có nhiệm vụ</div><div class="ao-node-foot flow-node__status">Chờ giao việc</div></button>
+        <button type="button" class="ao-node flow-node flow-node--test-1 cursor-interaction" data-node="testclaude" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Test</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Test · Claude</div><div class="ao-node-desc flow-node__desc">Profile trong cấu hình</div><div class="ao-node-foot flow-node__status">Chưa có kết quả</div></button>
+        <button type="button" class="ao-node flow-node flow-node--test-2 cursor-interaction" data-node="testcodex" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Test</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Test · Codex</div><div class="ao-node-desc flow-node__desc">Profile trong cấu hình</div><div class="ao-node-foot flow-node__status" data-test-state>Chưa có kết quả</div></button>
+        <button type="button" class="ao-node flow-node flow-node--review cursor-interaction" data-node="review" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Kiểm soát</span><span class="flow-node__id"></span></div><div class="ao-node-name">Review</div><div class="ao-node-desc flow-node__desc">Agent 0 kiểm tra diff</div><div class="ao-node-foot flow-node__status" data-review-state>Chưa có dữ liệu</div></button>
+        <button type="button" class="ao-node flow-node flow-node--patch cursor-interaction" data-node="export" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Tích hợp</span><span class="flow-node__id"></span></div><div class="ao-node-name">Xuất patch</div><div class="ao-node-desc flow-node__desc">Người dùng tích hợp</div><div class="ao-node-foot flow-node__status" data-export-state>Chờ được duyệt</div></button>
+      </div></div>
+      <div class="ao-detail flow-selected-task"><div><strong data-node-title="">Quy trình điều phối</strong><p data-node-description="">Chưa có dữ liệu</p></div><div class="ao-actions"><span class="ao-chip" data-node-badge="">Queue local</span><button type="button" class="ao-link cursor-interaction" data-action="open-task">Xem nhiệm vụ →</button></div></div>
+    </section>
+  </template>
+  <template data-compact-console-bar="">
+  <div class="ao-console-bar" aria-label="Thanh công cụ cửa sổ CMD">
+    <div class="ao-console-bar-info"><strong class="ao-console-bar-title"><i data-lucide="square-terminal" aria-hidden="true"></i>CMD</strong></div>
+    <div class="ao-console-bar-actions"><button type="button" class="ao-console-settings-button cursor-interaction" data-console-settings-toggle="" aria-label="Cài đặt bố cục cửa sổ" aria-expanded="false" aria-controls="ao-console-settings" data-tooltip="Cài đặt bố cục"><i data-lucide="settings" aria-hidden="true"></i></button></div>
+    <div class="ao-console-settings-panel" id="ao-console-settings" role="dialog" aria-label="Cài đặt hiển thị CMD" hidden="">
+      <div class="ao-settings-title"><span>Hiển thị cửa sổ</span><button type="button" class="ao-settings-close cursor-interaction" data-console-settings-close="" aria-label="Đóng cài đặt"><i data-lucide="x" aria-hidden="true"></i></button></div>
+      <div data-compact-layout-mount=""></div><div data-compact-mode-mount=""></div>
+      <div class="ao-settings-extra"><button type="button" class="ao-btn cursor-interaction" data-action="new-task"><i data-lucide="plus" aria-hidden="true"></i>Tạo nhiệm vụ</button><div data-compact-extra-mount=""></div></div>
+    </div>
+  </div>
+</template></div></body></html>

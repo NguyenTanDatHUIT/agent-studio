@@ -1,0 +1,68 @@
+// Optional DOM integration test: NODE_PATH=<directory containing jsdom> node tests/web_ui.cjs <demo-url>
+// Uses a disposable `web --demo` server, never a real project/model account.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {JSDOM} = require('jsdom');
+
+(async () => {
+  const url = process.argv[2];
+  if (!url) throw Error('Pass the token URL printed by web --demo');
+  const base = new URL(url);
+  const token = new URLSearchParams(base.hash.slice(1)).get('token');
+  const config = await fetch(base.origin + '/api/config', {headers:{Authorization:'Bearer '+token}}).then(r=>r.json());
+  assert.equal(config.demo, true, 'UI test must only operate on an offline demo');
+  const assets = path.join(__dirname, '..', 'agent_orchestrator', 'web_assets');
+  const dom = new JSDOM(fs.readFileSync(path.join(assets,'index.html'),'utf8'), {url,runScripts:'outside-only',pretendToBeVisual:true});
+  const w = dom.window, d=w.document, errors=[];
+  w.addEventListener('error',e=>errors.push(e.error||e.message));
+  w.ResizeObserver=class {observe(){} disconnect(){}};
+  w.HTMLElement.prototype.scrollIntoView=function(){};
+  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+  w.HTMLDialogElement.prototype.close=function(value){this.returnValue=value;this.open=false;this.dispatchEvent(new w.Event('close'));};
+  let downloads=0;
+  w.URL.createObjectURL=()=>{downloads++;return 'blob:offline-test';};w.URL.revokeObjectURL=()=>{};
+  w.HTMLAnchorElement.prototype.click=function(){};
+  w.fetch=async(input,options={})=>{try{return await fetch(new URL(input,base.origin),{...options,headers:{...options.headers,...(options.method==='POST'?{Origin:base.origin}:{})}});}catch(error){console.error('HTTP transport failed',input,error.cause);throw error;}};
+  w.eval(fs.readFileSync(path.join(assets,'icons.js'),'utf8'));
+  w.eval(fs.readFileSync(path.join(assets,'app.js'),'utf8'));
+  const q=s=>d.querySelector(s), all=s=>[...d.querySelectorAll(s)];
+  const wait=async fn=>{for(let i=0;i<150;i++){if(fn())return;await new Promise(r=>setTimeout(r,100));}throw Error('Timed out waiting for UI: '+d.querySelector('[data-toast]').textContent);};
+  const click=s=>{assert(q(s),'Missing '+s);q(s).click();};
+  const input=(s,value)=>{q(s).value=value;q(s).dispatchEvent(new w.Event('input',{bubbles:true}));};
+  await wait(()=>q('.ao-demo').textContent.includes('OFFLINE DEMO'));
+  assert.equal(all('[data-window]').length,4);
+  assert.equal(all('[data-node]').length,14);
+  assert.equal(q('[data-metric="review"]').textContent,'1');
+  input('[data-command="claude"]','Giữ bản nháp khi chuyển bố cục');
+  click('[data-console-layout="1x2"]');assert.equal(all('[data-window]').length,2);
+  assert.equal(q('[data-command="claude"]').value,'Giữ bản nháp khi chuyển bố cục');
+  click('[data-window-page="2"]');assert(q('[data-window="queue"]'));
+  click('[data-console-mode="all"]');assert.equal(all('[data-window]').length,4);
+  click('[data-focus="codex"]');assert.equal(all('[data-window]').length,1);
+  click('[data-console-action="unfocus"]');assert.equal(all('[data-window]').length,4);
+  q('[data-drag="claude"]').dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowRight',altKey:true,bubbles:true}));
+  assert.equal(all('[data-window]')[0].dataset.window,'codex');
+  click('[data-console-action="add"]');assert.equal(q('dialog').open,true);
+  q('dialog').close('add');assert.equal(all('[data-window]').length,5);
+  for(const page of ['overview','flow','reports','permissions','tasks']){click(`[data-page="${page}"]`);assert.equal(q(`[data-view="${page}"]`).hidden,false);}
+  click('[data-action="new-task"]');input('[name="prompt"]','UI test <img src=x onerror=alert(1)>');input('[name="scope"]','src');
+  q('[data-create-form]').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+  await wait(()=>q('[data-task-detail]').textContent.includes('UI test')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  assert.equal(q('[data-task-detail] img'),null,'Task text must not become HTML');
+  assert(q('[data-task-detail]').textContent.includes('<img'));
+  click('[data-detail="cancel"]');await wait(()=>q('[data-task-detail]').textContent.includes('Đã hủy')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  const reviewRow=all('[data-task-rows] tr').find(row=>row.textContent.includes('Chờ review'));
+  assert(reviewRow);reviewRow.querySelector('[data-task]').click();
+  await wait(()=>q('[data-detail="diff"]')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  click('[data-detail="diff"]');await wait(()=>q('[data-diff]')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  assert(q('[data-diff]').textContent.includes('+42'));
+  click('[data-review="approve"]');await wait(()=>q('[data-toast]').textContent.includes('Xác nhận'));
+  input('[data-review-notes]','DOM integration: reviewed exact patch and test evidence.');q('[data-review-ack]').checked=true;
+  click('[data-review="approve"]');await wait(()=>q('[data-detail="export"]')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  click('[data-detail="export"]');await wait(()=>q('[data-detail="download-patch"]')&&!q('#ao-studio').hasAttribute('aria-busy'));
+  click('[data-detail="download-patch"]');await wait(()=>downloads===1);
+  assert.deepEqual(errors,[]);
+  console.log('PASS: navigation, flow, layout, paging, drafts, focus, reorder, add window, enqueue, XSS text escaping, cancel, digest review, export and download (real HTTP / offline demo).');
+  dom.window.close();
+})().catch(error=>{console.error(error);process.exit(1);});

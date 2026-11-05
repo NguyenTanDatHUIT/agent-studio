@@ -1,0 +1,9 @@
+Sửa lỗi cụ thể trong src và bổ sung regression test trong tests.
+
+Yêu cầu:
+- Mô tả điều kiện tái hiện và hành vi mong muốn bằng ví dụ cụ thể.
+- Giữ thay đổi nhỏ, đúng phạm vi được cấp.
+- Không commit, merge, push hoặc thay đổi cấu hình tool/quyền.
+- Trả summary ngắn: file đổi, cách sửa, rủi ro và test liên quan.
+
+Thay nội dung này bằng yêu cầu thực tế trước khi enqueue.

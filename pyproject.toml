@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "windows-agent-orchestrator"
+version = "0.1.0"
+description = "Local Claude/Codex queue, isolated Git worktrees and review gates"
+requires-python = ">=3.11"
+dependencies = []
+license = {text = "MIT"}
+
+[project.scripts]
+agent-orch = "agent_orchestrator.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_orchestrator*"]
+
+[tool.setuptools.package-data]
+agent_orchestrator = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt"]

@@ -1,0 +1,392 @@
+--- a/agent_orchestrator/web_assets/index.html
++++ b/agent_orchestrator/web_assets/index.html
+@@ -61,17 +61,18 @@
+     </div>
+   </div>
+   <template data-flow-template="">
+-    <section class="ao-panel" aria-label="Sơ đồ điều phối nhiệm vụ"><div class="ao-panel-head"><div><h2>Sơ đồ điều phối</h2><p>MCP → hàng đợi → worktree riêng → test → review → patch</p></div><button type="button" class="ao-btn cursor-interaction" data-action="next-step"><i data-lucide="play" aria-hidden="true"></i>Cập nhật trạng thái</button></div>
+-      <div class="ao-flow"><svg class="ao-edges" aria-hidden="true"></svg>
+-        <button type="button" class="ao-node cursor-interaction" data-node="agent0" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon"><i data-lucide="workflow" aria-hidden="true"></i></span><span class="ao-chip">—</span></div><div class="ao-node-name">Agent 0</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="claude" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon claude"><i data-lucide="sparkles" aria-hidden="true"></i></span><span style="font-size:11px;color:var(--ao-muted)">—</span></div><div class="ao-node-name">Claude Worker</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot working">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="codex" aria-pressed="true"><div class="ao-node-top"><span class="ao-node-icon codex"><i data-lucide="terminal" aria-hidden="true"></i></span><span style="font-size:11px;color:var(--ao-muted)">—</span></div><div class="ao-node-name">Codex Worker</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="testclaude" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon"><i data-lucide="flask-conical" aria-hidden="true"></i></span></div><div class="ao-node-name">Test · Claude</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="testcodex" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon"><i data-lucide="flask-conical" aria-hidden="true"></i></span></div><div class="ao-node-name">Test · Codex</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot working" data-test-state="">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="review" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon"><i data-lucide="scan-eye" aria-hidden="true"></i></span></div><div class="ao-node-name">Review</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot" data-review-state="">Chưa có dữ liệu</div></button>
+-        <button type="button" class="ao-node cursor-interaction" data-node="export" aria-pressed="false"><div class="ao-node-top"><span class="ao-node-icon"><i data-lucide="package-check" aria-hidden="true"></i></span></div><div class="ao-node-name">Xuất patch</div><div class="ao-node-desc">Chưa có dữ liệu</div><div class="ao-node-foot" data-export-state="">Chưa có dữ liệu</div></button>
+-      </div>
+-      <div class="ao-detail"><div><strong data-node-title="">Quy trình điều phối</strong><p data-node-description="">Chưa có dữ liệu</p></div><div class="ao-actions"><span class="ao-chip" data-node-badge="">CLI workspace-write</span><button type="button" class="ao-link cursor-interaction" data-action="open-task">Xem nhiệm vụ →</button></div></div>
++    <section class="ao-panel agent-flow-section" aria-label="Sơ đồ điều phối nhiệm vụ"><div class="ao-panel-head flow-heading"><div><h2>Sơ đồ điều phối</h2><p>Luồng làm việc · Agent 0 → Workers → Tests → Review → Xuất patch</p></div><span class="flow-summary" data-flow-summary>Chưa có hoạt động</span><button type="button" class="ao-btn" data-action="next-step" hidden>Cập nhật trạng thái</button></div>
++      <div class="flow-scroller" role="region" aria-label="Sơ đồ điều phối; có thể cuộn ngang" tabindex="0">
++      <div class="ao-flow flow-board"><svg class="ao-edges flow-connections" aria-hidden="true" focusable="false"></svg>
++        <button type="button" class="ao-node flow-node flow-node--agent cursor-interaction" data-node="agent0" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Điều phối</span><span class="flow-node__id">A0</span></div><div class="ao-node-name">Agent 0</div><div class="ao-node-desc flow-node__desc">Giao việc qua MCP / web</div><div class="ao-node-foot flow-node__status">Chưa có dữ liệu</div></button>
++        <button type="button" class="ao-node flow-node flow-node--claude cursor-interaction" data-node="claude" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Worker</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Claude Worker</div><div class="ao-node-desc flow-node__desc">Chưa có nhiệm vụ</div><div class="ao-node-foot flow-node__status">Chờ giao việc</div></button>
++        <button type="button" class="ao-node flow-node flow-node--codex cursor-interaction" data-node="codex" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Worker</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Codex Worker</div><div class="ao-node-desc flow-node__desc">Chưa có nhiệm vụ</div><div class="ao-node-foot flow-node__status">Chờ giao việc</div></button>
++        <button type="button" class="ao-node flow-node flow-node--test-1 cursor-interaction" data-node="testclaude" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Test</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Test · Claude</div><div class="ao-node-desc flow-node__desc">Profile trong cấu hình</div><div class="ao-node-foot flow-node__status">Chưa có kết quả</div></button>
++        <button type="button" class="ao-node flow-node flow-node--test-2 cursor-interaction" data-node="testcodex" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Test</span><span class="flow-node__id">—</span></div><div class="ao-node-name">Test · Codex</div><div class="ao-node-desc flow-node__desc">Profile trong cấu hình</div><div class="ao-node-foot flow-node__status" data-test-state>Chưa có kết quả</div></button>
++        <button type="button" class="ao-node flow-node flow-node--review cursor-interaction" data-node="review" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Kiểm soát</span><span class="flow-node__id"></span></div><div class="ao-node-name">Review</div><div class="ao-node-desc flow-node__desc">Agent 0 kiểm tra diff</div><div class="ao-node-foot flow-node__status" data-review-state>Chưa có dữ liệu</div></button>
++        <button type="button" class="ao-node flow-node flow-node--patch cursor-interaction" data-node="export" aria-pressed="false"><div class="ao-node-top flow-node__top"><span class="flow-node__type">Tích hợp</span><span class="flow-node__id"></span></div><div class="ao-node-name">Xuất patch</div><div class="ao-node-desc flow-node__desc">Người dùng tích hợp</div><div class="ao-node-foot flow-node__status" data-export-state>Chờ được duyệt</div></button>
++      </div></div>
++      <div class="ao-detail flow-selected-task"><div><strong data-node-title="">Quy trình điều phối</strong><p data-node-description="">Chưa có dữ liệu</p></div><div class="ao-actions"><span class="ao-chip" data-node-badge="">Queue local</span><button type="button" class="ao-link cursor-interaction" data-action="open-task">Xem nhiệm vụ →</button></div></div>
+     </section>
+   </template>
+   <template data-compact-console-bar="">
+@@ -84,4 +85,4 @@
+       <div class="ao-settings-extra"><button type="button" class="ao-btn cursor-interaction" data-action="new-task"><i data-lucide="plus" aria-hidden="true"></i>Tạo nhiệm vụ</button><div data-compact-extra-mount=""></div></div>
+     </div>
+   </div>
+-</template></div></body></html>+</template></div></body></html>
+--- a/agent_orchestrator/web_assets/style.css
++++ b/agent_orchestrator/web_assets/style.css
+@@ -89,3 +89,280 @@
+ html,body{margin:0;padding:0;background:#f5f7f9}body{font-family:'Segoe UI',Arial,sans-serif}button{cursor:pointer}button:disabled{cursor:not-allowed}#ao-studio{border:0;border-radius:0;min-height:100vh}#ao-studio .ao-shell{min-height:100vh}#ao-studio .ao-side{position:sticky;top:0;height:100vh}#ao-studio .ao-project{overflow-wrap:anywhere}#ao-studio .ao-main{max-width:1800px;margin:auto}#ao-studio pre{margin:12px 0;tab-size:2}#ao-studio .ao-code{font:12px/1.7 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:480px;overflow:auto;padding:16px;border:1px solid var(--ao-line);border-radius:8px;background:var(--ao-bg)}#ao-studio .ao-diff{background:#17232d;color:#d4e4ef}#ao-studio .ao-wrap{overflow-wrap:anywhere;white-space:pre-wrap}#ao-studio .ao-detail-content{margin-top:16px}#ao-studio [data-review-controls]{display:grid;gap:12px;margin-top:16px}#ao-studio .ao-check{display:flex;gap:8px;align-items:flex-start;font-size:12px}#ao-studio .ao-test-options{display:flex;gap:14px;flex-wrap:wrap}#ao-studio .ao-test-options label{display:flex;align-items:center;gap:4px;color:var(--ao-text)}#ao-studio .error{background:var(--ao-redbg);color:var(--ao-red)}#ao-studio .ao-danger{color:var(--ao-red)}#ao-studio .ao-spread{justify-content:space-between}#ao-studio .ao-empty{padding:26px;text-align:center;color:var(--ao-muted)}#ao-studio .ao-wide{grid-column:1/-1}#ao-studio .ao-task-table tr[aria-selected=true]{background:var(--ao-tint)}#ao-studio .ao-task-table{font-size:12px}#ao-studio .ao-terminal-output{margin:0;min-height:210px;max-height:260px;overflow:auto}#ao-studio .ao-expanded .ao-terminal-output{max-height:650px;min-height:400px}#ao-studio .ao-terminal-head{cursor:default;touch-action:auto;user-select:auto}#ao-studio .ao-terminal-grid{align-items:start}#ao-studio .ao-window-dialog{background:var(--ao-panel);color:var(--ao-text);border:1px solid var(--ao-line);border-radius:12px;max-width:480px;width:calc(100% - 40px);padding:24px}#ao-studio .ao-window-dialog::backdrop{background:#10212c88}#ao-studio .ao-window-dialog form{display:grid;gap:18px}#ao-studio .ao-window-dialog label{display:grid;gap:8px}#ao-studio .ao-window-dialog select{padding:10px;background:var(--ao-bg);color:var(--ao-text);border:1px solid var(--ao-line);border-radius:6px;width:100%}#ao-studio .ao-window-dialog button{padding:8px 14px;border:1px solid var(--ao-line);border-radius:6px;background:var(--ao-soft);color:var(--ao-text)}#ao-studio .ao-window-dialog p{font-size:12px;color:var(--ao-muted)}#ao-studio .ao-node-top{min-height:25px}#ao-studio .ao-terminal-meta code{max-width:70%}#ao-studio .ao-form textarea{min-height:110px}
+ @media(max-width:620px){#ao-studio .ao-side{position:static;height:auto}#ao-studio .ao-terminal-grid{grid-template-columns:1fr!important}#ao-studio .ao-wide{grid-column:auto}#ao-studio .ao-filter{max-width:100%}#ao-studio .ao-task-detail .ao-detail-grid{grid-template-columns:1fr}}
+ @media(prefers-color-scheme:dark){html,body{background:#12171e}}
++
++/* Orchestration diagram — approved specification, 2026-11-05. */
++/* ===== Agent Studio / Orchestration flow — scoped styles ===== */
++#ao-studio .agent-flow-section {
++  --af-bg: #111923;
++  --af-board: #151f2c;
++  --af-card: #192432;
++  --af-card-hover: #1d2b3a;
++  --af-border: #2b3b4b;
++  --af-text: #eef5fd;
++  --af-muted: #9bb0c7;
++  --af-accent: #42d7c6;
++  --af-line: #486075;
++  --af-radius: 12px;
++  background: var(--af-bg);
++  color: var(--af-text);
++  font-family: inherit;
++  border: 1px solid var(--af-border);
++  border-radius: 14px;
++  overflow: hidden;
++}
++
++#ao-studio .agent-flow-section * { box-sizing: border-box; }
++
++#ao-studio .agent-flow-section .flow-heading {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  gap: 20px;
++  padding: 18px 22px;
++  border-bottom: 1px solid var(--af-border);
++}
++#ao-studio .agent-flow-section .flow-heading h2 {
++  margin: 0;
++  color: var(--af-text);
++  font-size: 17px;
++  font-weight: 650;
++  letter-spacing: -0.2px;
++}
++#ao-studio .agent-flow-section .flow-heading p {
++  margin: 6px 0 0;
++  font-size: 12px;
++  color: var(--af-muted);
++}
++#ao-studio .agent-flow-section .flow-summary {
++  display: inline-flex;
++  align-items: center;
++  gap: 8px;
++  white-space: nowrap;
++  color: #abd9d1;
++  background: rgba(66, 215, 198, 0.08);
++  border: 1px solid rgba(66, 215, 198, 0.18);
++  border-radius: 7px;
++  padding: 6px 10px;
++  font-size: 12px;
++}
++#ao-studio .agent-flow-section .flow-summary__dot {
++  width: 6px;
++  height: 6px;
++  border-radius: 50%;
++  background: var(--af-accent);
++}
++
++/* Board fixed geometric coordinates = SVG viewBox; scroll on narrow screens. */
++#ao-studio .agent-flow-section .flow-scroller {
++  width: 100%;
++  overflow-x: auto;
++  overflow-y: hidden;
++  scrollbar-width: thin;
++  scrollbar-color: #415269 transparent;
++  outline-offset: -3px;
++}
++#ao-studio .agent-flow-section .flow-scroller:focus-visible {
++  outline: 2px solid var(--af-accent);
++}
++#ao-studio .agent-flow-section .flow-board {
++  position: relative;
++  width: 1274px;
++  height: 428px;
++  margin: 0 auto;
++  isolation: isolate;
++  background-color: var(--af-board);
++  background-image: radial-gradient(rgba(126, 160, 187, 0.19) 0.8px, transparent 0.8px);
++  background-position: 1px 1px;
++  background-size: 16px 16px;
++}
++#ao-studio .agent-flow-section .flow-connections {
++  position: absolute;
++  inset: 0;
++  width: 100%;
++  height: 100%;
++  z-index: 0;
++  pointer-events: none;
++  overflow: visible;
++}
++#ao-studio .agent-flow-section .flow-connections__base path {
++  fill: none;
++  stroke: var(--af-line);
++  stroke-width: 2;
++  stroke-linecap: round;
++  opacity: 0.78;
++}
++#ao-studio .agent-flow-section .flow-path {
++  fill: none;
++  stroke: var(--af-accent);
++  stroke-width: 2.4;
++  stroke-linecap: round;
++  stroke-dasharray: 5 11;
++  opacity: 0;
++}
++#ao-studio .agent-flow-section .flow-path.is-active {
++  opacity: 0.95;
++  animation: af-flow-travel 1.35s linear infinite;
++  filter: drop-shadow(0 0 2px rgba(66, 215, 198, 0.4));
++}
++
++/* Nodes — all absolute positions are matched to the SVG endpoints. */
++#ao-studio .agent-flow-section .flow-node {
++  position: absolute;
++  z-index: 1;
++  padding: 14px 15px 12px;
++  background: var(--af-card);
++  border: 1px solid var(--af-border);
++  border-radius: var(--af-radius);
++  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.10);
++  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
++  overflow: hidden;
++}
++#ao-studio .agent-flow-section .flow-node:hover {
++  background: var(--af-card-hover);
++  border-color: #547086;
++}
++#ao-studio .agent-flow-section .flow-node--agent   { left: 28px;   top: 140px; width: 168px; height: 132px; }
++#ao-studio .agent-flow-section .flow-node--claude  { left: 264px;  top: 68px;  width: 218px; height: 136px; }
++#ao-studio .agent-flow-section .flow-node--codex   { left: 264px;  top: 250px; width: 218px; height: 136px; }
++#ao-studio .agent-flow-section .flow-node--test-1  { left: 534px;  top: 68px;  width: 194px; height: 136px; }
++#ao-studio .agent-flow-section .flow-node--test-2  { left: 534px;  top: 250px; width: 194px; height: 136px; }
++#ao-studio .agent-flow-section .flow-node--review  { left: 800px;  top: 140px; width: 198px; height: 132px; }
++#ao-studio .agent-flow-section .flow-node--patch   { left: 1074px; top: 140px; width: 172px; height: 132px; }
++
++#ao-studio .agent-flow-section .flow-node__top {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++  min-height: 18px;
++  margin-bottom: 10px;
++}
++#ao-studio .agent-flow-section .flow-node__type {
++  font-size: 11px;
++  font-weight: 500;
++  color: var(--af-muted);
++}
++#ao-studio .agent-flow-section .flow-node__id {
++  font-size: 11px;
++  color: #b3c5d8;
++  font-variant-numeric: tabular-nums;
++}
++#ao-studio .agent-flow-section .flow-node h3 {
++  margin: 0 0 5px;
++  font-size: 14px;
++  font-weight: 650;
++  line-height: 1.3;
++  color: var(--af-text);
++}
++#ao-studio .agent-flow-section .flow-node__desc,
++#ao-studio .agent-flow-section .flow-node__status {
++  margin: 0;
++  font-size: 11px;
++  line-height: 1.45;
++  white-space: nowrap;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++#ao-studio .agent-flow-section .flow-node__desc { color: var(--af-muted); }
++#ao-studio .agent-flow-section .flow-node__status {
++  margin-top: 9px;
++  padding-top: 8px;
++  border-top: 1px solid rgba(136, 158, 179, 0.22);
++  color: #bdccdb;
++}
++#ao-studio .agent-flow-section .flow-node__status.status-running,
++#ao-studio .agent-flow-section .flow-node__status.status-success { color: var(--af-accent); }
++
++/* State visual effects — must be driven by real task status. */
++#ao-studio .agent-flow-section .flow-node.is-selected {
++  border-color: var(--af-accent);
++  box-shadow: 0 0 0 2px rgba(66, 215, 198, 0.14),
++              0 8px 18px rgba(0, 0, 0, 0.16);
++}
++#ao-studio .agent-flow-section .flow-node.is-running {
++  border-color: rgba(66, 215, 198, 0.55);
++  animation: af-node-breathe 2.7s ease-in-out infinite;
++}
++
++#ao-studio .agent-flow-section .flow-selected-task {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 16px;
++  padding: 14px 20px;
++  border-top: 1px solid var(--af-border);
++  background: #182330;
++}
++#ao-studio .agent-flow-section .flow-selected-task strong {
++  font-size: 12px;
++  font-weight: 650;
++}
++#ao-studio .agent-flow-section .flow-selected-task p {
++  margin: 6px 0 0;
++  font-size: 12px;
++  color: var(--af-muted);
++}
++#ao-studio .agent-flow-section .flow-selected-task button {
++  border: none;
++  background: none;
++  color: #6adfd7;
++  font: inherit;
++  font-size: 12px;
++  white-space: nowrap;
++  cursor: pointer;
++  padding: 7px 4px;
++}
++#ao-studio .agent-flow-section .flow-selected-task button:hover { text-decoration: underline; }
++#ao-studio .agent-flow-section .flow-selected-task button:focus-visible {
++  outline: 2px solid var(--af-accent);
++  outline-offset: 3px;
++  border-radius: 3px;
++}
++
++@keyframes af-flow-travel {
++  from { stroke-dashoffset: 32; }
++  to   { stroke-dashoffset: 0; }
++}
++@keyframes af-node-breathe {
++  0%, 100% { box-shadow: 0 0 0 0 rgba(66, 215, 198, 0.02); }
++  50%      { box-shadow: 0 0 0 2px rgba(66, 215, 198, 0.13),
++                         0 0 18px rgba(66, 215, 198, 0.08); }
++}
++
++/* Smaller screens: do not squeeze columns; allow board-only sideways scrolling. */
++@media (max-width: 800px) {
++  #ao-studio .agent-flow-section .flow-heading { flex-wrap: wrap; padding: 14px 16px; }
++  #ao-studio .agent-flow-section .flow-selected-task { align-items: flex-start; flex-direction: column; }
++  #ao-studio .agent-flow-section .flow-board { margin-left: 0; margin-right: 0; }
++}
++
++/* Respect OS accessibility preference. */
++@media (prefers-reduced-motion: reduce) {
++  #ao-studio .agent-flow-section .flow-path.is-active,
++  #ao-studio .agent-flow-section .flow-node.is-running {
++    animation: none !important;
++  }
++  #ao-studio .agent-flow-section .flow-node { transition: none; }
++}
++/* Retain existing hooks and isolate the new fixed board from the old responsive grid. */
++#ao-studio .agent-flow-section .flow-board{display:block;width:1274px;min-width:1274px;height:428px;min-height:428px;padding:0;gap:0;background-size:16px 16px}
++#ao-studio .agent-flow-section .flow-scroller{min-width:0;max-width:100%;overscroll-behavior-x:contain}
++#ao-studio .agent-flow-section .flow-node{display:block;text-align:left;font:inherit;align-self:auto;max-width:none;justify-self:auto;outline:none;min-height:0}
++#ao-studio .agent-flow-section .flow-node:focus-visible{outline:2px solid var(--af-accent);outline-offset:4px}
++#ao-studio .agent-flow-section .flow-node[aria-pressed=true]{outline:none}
++#ao-studio .agent-flow-section .flow-node .ao-node-name{font-size:14px;font-weight:650;line-height:1.3;margin:0 0 5px;color:var(--af-text)}
++#ao-studio .agent-flow-section .flow-node .ao-node-desc{color:var(--af-muted);margin-top:0;font-size:11px}
++#ao-studio .agent-flow-section .flow-node .ao-node-foot{display:block;font-size:11px;line-height:1.45;border-color:rgba(136,158,179,.22)}
++#ao-studio .agent-flow-section .flow-node .flow-node__top{margin-bottom:10px;min-height:18px}
++#ao-studio .agent-flow-section .flow-node .flow-node__status:not(.status-running):not(.status-success){color:#bdccdb}
++#ao-studio .agent-flow-section .flow-node .flow-node__status.status-running,#ao-studio .agent-flow-section .flow-node .flow-node__status.status-success{color:var(--af-accent)}
++#ao-studio .agent-flow-section .flow-node.is-selected{border-color:var(--af-accent)}
++#ao-studio .agent-flow-section .flow-selected-task{display:flex;grid-template-columns:none}
++#ao-studio .agent-flow-section .flow-selected-task p{color:var(--af-muted)}
++#ao-studio .agent-flow-section .flow-selected-task .ao-chip{background:rgba(66,215,198,.08);color:#abd9d1}
++#ao-studio .agent-flow-section .flow-summary{color:var(--af-muted);background:rgba(155,176,199,.06);border-color:var(--af-border)}
++#ao-studio .agent-flow-section .flow-summary.has-activity{color:#abd9d1;background:rgba(66,215,198,.08);border-color:rgba(66,215,198,.18)}
++#ao-studio .agent-flow-section .flow-summary.has-activity::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--af-accent)}
++#ao-studio .agent-flow-section .flow-connections .ao-edge{stroke:var(--af-line);stroke-width:2}
++@media(prefers-reduced-motion:reduce){#ao-studio .agent-flow-section .flow-path.is-active,#ao-studio .agent-flow-section .flow-node.is-running{animation:none!important}#ao-studio .agent-flow-section .flow-node{transition:none}}
++#ao-studio .agent-flow-section .flow-node[aria-pressed=true]:focus-visible{outline:2px solid var(--af-accent);outline-offset:4px}
+--- a/agent_orchestrator/web_assets/app.js
++++ b/agent_orchestrator/web_assets/app.js
+@@ -76,13 +76,53 @@
+     $('[data-reports]').innerHTML=`<section class="ao-panel"><div class="ao-panel-head"><h2>Kết quả nhiệm vụ</h2><span class="ao-chip">${tasks.length} gần nhất</span></div><div class="ao-report-body"><div class="ao-report-num">${tasks.filter(t=>t.status==='approved').length}</div><p class="ao-muted">nhiệm vụ đã duyệt</p>${Object.entries(labels).map(([s,l])=>`<div class="ao-usage-row"><span>${l}</span><strong>${tasks.filter(t=>t.status===s).length}</strong></div>`).join('')}</div></section><section class="ao-panel"><div class="ao-panel-head"><h2>Test & thời gian</h2></div><div class="ao-report-body"><div class="ao-usage-row"><span>Task có test đạt</span><strong>${passed.length}/${tasks.length}</strong></div><div class="ao-usage-row"><span>Trung vị thời gian worker</span><strong>${median==null?'Chưa có':median.toFixed(1)+' giây'}</strong></div><div class="ao-notice">Thời gian lấy từ process worker đã kết thúc. Không ước lượng phần trăm tiến độ.</div></div></section><section class="ao-panel ao-wide"><div class="ao-panel-head"><h2>Token & usage do CLI trả về</h2></div><div class="ao-report-body">${rows||'<p class="ao-muted">Chưa có số liệu usage.</p>'}<div class="ao-notice">Thiếu số liệu được hiển thị “Chưa có”. Không suy đoán token hay tổng chi phí.</div></div></section>`;
+   }
+   function renderFlow(){
+-    const latest=p=>state.tasks.find(t=>t.provider===p),counts=s=>state.tasks.filter(t=>t.status===s).length;
+-    const data={agent0:['Agent 0','Giao việc qua MCP / web',`${counts('queued')} task chờ`],review:['Review','Kiểm tra diff và test',`${counts('awaiting_review')} chờ duyệt`],export:['Xuất patch','Người dùng tích hợp',`${counts('approved')} đã duyệt`]};
+-    for(const p of ['claude','codex']){const t=latest(p);data[p]=[p==='claude'?'Claude Worker':'Codex Worker',t?'orch/'+short(t.id):'Chưa có nhiệm vụ',t?labels[t.status]:'Chờ giao việc'];data['test'+p]=['Test · '+p,t?t.tests.join(', '):'Profile trong cấu hình',t?testSummary(t):'Chưa có kết quả'];}
+-    $$('[data-node]').forEach(node=>{const d=data[node.dataset.node];node.querySelector('.ao-node-name').textContent=d[0];node.querySelector('.ao-node-desc').textContent=d[1];node.querySelector('.ao-node-foot').textContent=d[2];const extra=node.querySelector('.ao-node-top > span:last-child:not(.ao-node-icon)');if(extra)extra.textContent=node.dataset.node==='agent0'?'A0':short(latest(node.dataset.node)?.id);});
+-    $$('[data-node-title]').forEach(e=>e.textContent='Quy trình đang hoạt động');$$('[data-node-description]').forEach(e=>e.textContent='Chọn một bước để xem nhiệm vụ liên quan. Test và review thực hiện trên đúng snapshot.');$$('[data-node-badge]').forEach(e=>e.textContent='Queue local');requestAnimationFrame(drawEdges);
+-  }
+-  function drawEdges(){$$('.ao-flow').forEach(flow=>{const svg=flow.querySelector('svg'),box=flow.getBoundingClientRect();if(!box.width)return;svg.setAttribute('viewBox',`0 0 ${box.width} ${box.height}`);svg.setAttribute('width',box.width);svg.setAttribute('height',box.height);svg.innerHTML=[['agent0','claude'],['agent0','codex'],['claude','testclaude'],['codex','testcodex'],['testclaude','review'],['testcodex','review'],['review','export']].map(([from,to])=>{const a=flow.querySelector(`[data-node="${from}"]`).getBoundingClientRect(),b=flow.querySelector(`[data-node="${to}"]`).getBoundingClientRect(),mobile=getComputedStyle(flow).gridTemplateColumns.split(' ').length!==5,x1=(mobile?a.left+a.width/2:a.right)-box.left,y1=(mobile?a.bottom:a.top+a.height/2)-box.top,x2=(mobile?b.left+b.width/2:b.left)-box.left,y2=(mobile?b.top:b.top+b.height/2)-box.top;return `<path class="ao-edge" d="M${x1},${y1} C${mobile?x1:(x1+x2)/2},${mobile?(y1+y2)/2:y1} ${mobile?x2:(x1+x2)/2},${mobile?(y1+y2)/2:y2} ${x2},${y2}"/>`;}).join('');});}
++    const latest=p=>state.tasks.find(t=>t.provider===p&&t.status==='running')||state.tasks.find(t=>t.provider===p),counts=s=>state.tasks.filter(t=>t.status===s).length;
++    const data={agent0:{name:'Agent 0',desc:'Giao việc qua MCP / web',text:`Hàng đợi · ${counts('queued')} task`,task:state.tasks.find(t=>t.status==='queued')},review:{name:'Review',desc:'Agent 0 kiểm tra diff',text:`${counts('awaiting_review')} task chờ duyệt`,task:state.tasks.find(t=>t.status==='awaiting_review')},export:{name:'Xuất patch',desc:'Người dùng tích hợp',text:counts('approved')?`${counts('approved')} đã duyệt · có thể xuất`:'Chờ được duyệt',task:state.tasks.find(t=>t.status==='approved')}};
++    for(const p of ['claude','codex']){
++      const t=latest(p),event=state.events.filter(e=>e.task_id===t?.id).sort((a,b)=>b.seq-a.seq)[0];
++      // A running task alone does not identify its phase. Animate only known event evidence.
++      const workerRunning=t?.status==='running'&&event?.kind==='worker_started';
++      const testRunning=t?.status==='running'&&event?.kind==='test_started';
++      const workerDone=testRunning||['awaiting_review','approved','changes_requested'].includes(t?.status)||!!t?.result?.worker&&t.result.worker.exit_code===0&&!t.result.worker.reason;
++      const tests=t?.result?.tests||[],testPassed=tests.length>0&&tests.every(x=>x.exit_code===0&&!x.reason);
++      data[p]={name:p==='claude'?'Claude Worker':'Codex Worker',desc:t?'worktree · orch/'+short(t.id):'Chưa có nhiệm vụ',text:workerRunning?'Đang xử lý code':workerDone?'✓ Code đã sẵn sàng':t?labels[t.status]:'Chờ giao việc',task:t,running:workerRunning,success:workerDone};
++      data['test'+p]={name:t?'Test '+short(t.id):'Test · '+(p==='claude'?'Claude':'Codex'),desc:t?'Profile · '+t.tests.join(', '):'Profile trong cấu hình',text:testRunning?'Đang chạy test':testPassed?'✓ '+testSummary(t):tests.length?testSummary(t):t?.status==='queued'||workerRunning?'Chờ worker':t?.status==='failed'||t?.status==='cancelled'?'Chưa có kết quả · task đã dừng':'Chưa có kết quả',task:t,running:testRunning,success:testPassed};
++    }
++    $$('[data-node]').forEach(node=>{
++      const key=node.dataset.node,d=data[key],task=d.task;
++      node.querySelector('.ao-node-name').textContent=d.name;
++      node.querySelector('.ao-node-desc').textContent=d.desc;node.querySelector('.ao-node-desc').title=task?task.id+' · '+title(task):d.desc;
++      const foot=node.querySelector('.ao-node-foot');foot.textContent=d.text;foot.title=d.text;foot.classList.toggle('status-running',!!d.running);foot.classList.toggle('status-success',!!d.success);
++      node.querySelector('.flow-node__id').textContent=key==='agent0'?'A0':task?short(task.id):'—';
++      node.dataset.taskId=task?.id||'';node.dataset.flowRunning=String(!!d.running);
++      node.classList.toggle('is-running',!!d.running);
++      const selected=state.flowNode===key&&task?.id===state.selected;node.classList.toggle('is-selected',selected);node.setAttribute('aria-pressed',String(selected));
++    });
++    const running=counts('running');$$('[data-flow-summary]').forEach(e=>{e.textContent=running?`${running} task đang thực hiện`:counts('awaiting_review')?`${counts('awaiting_review')} task chờ review`:'Chưa có task đang chạy';e.classList.toggle('has-activity',running>0);});
++    const selected=state.flowNode&&data[state.flowNode],task=selected?.task;
++    $$('[data-node-title]').forEach(e=>e.textContent=task?selected.name+' · '+short(task.id):'Quy trình điều phối');
++    $$('[data-node-description]').forEach(e=>e.textContent=task?title(task)+' · '+selected.text:'Chọn một bước để xem nhiệm vụ liên quan. Review và xuất patch không tự tích hợp vào main.');
++    $$('[data-node-badge]').forEach(e=>e.textContent=task?labels[task.status]:'Queue local');requestAnimationFrame(drawEdges);
++  }
++  function drawEdges(){
++    $$('.ao-flow').forEach(flow=>{
++      const svg=flow.querySelector('svg'),box=flow.getBoundingClientRect();if(!box.width)return;
++      svg.setAttribute('viewBox',`0 0 ${box.width} ${box.height}`);svg.setAttribute('width',box.width);svg.setAttribute('height',box.height);
++      const edges=[['agent0','claude'],['agent0','codex'],['claude','testclaude'],['codex','testcodex'],['testclaude','review'],['testcodex','review'],['review','export']].map(([from,to])=>{
++        const source=flow.querySelector(`[data-node="${from}"]`),target=flow.querySelector(`[data-node="${to}"]`),a=source.getBoundingClientRect(),b=target.getBoundingClientRect();
++        const x1=a.right-box.left,y1=a.top+a.height/2-box.top,x2=b.left-box.left,y2=b.top+b.height/2-box.top,mx=(x1+x2)/2;
++        const active=['claude','codex','testclaude','testcodex'].includes(to)&&target.dataset.flowRunning==='true';
++        return {key:from+'-'+to,d:`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`,active};
++      });
++      // Keep SVG elements stable during polling so animation does not restart every 3 seconds.
++      if(!svg.querySelector('.flow-connections__base'))svg.innerHTML='<g class="flow-connections__base"></g><g class="flow-connections__motion"></g>';
++      for(const edge of edges){for(const layer of ['base','motion']){
++        const group=svg.querySelector('.flow-connections__'+layer);let path=group.querySelector(`[data-edge="${edge.key}"]`);
++        if(!path){path=document.createElementNS('http://www.w3.org/2000/svg','path');path.dataset.edge=edge.key;group.append(path);}
++        path.setAttribute('d',edge.d);path.setAttribute('class',layer==='base'?'ao-edge':'flow-path'+(edge.active?' is-active':''));
++      }}
++    });
++  }
+   async function selectTask(id){
+     state.selected=id;state.bundle=null;navigate('tasks');renderTasks();
+     const t=state.tasks.find(t=>t.id===id);if(!t)return;
+@@ -152,7 +192,7 @@
+     const action=target.closest('[data-action]')?.dataset.action;if(action==='new-task')openForm();if(action==='close-form')form.hidden=true;
+     const detail=target.closest('[data-detail]');if(detail){runAction(()=>detailAction(detail.dataset.detail));return;}
+     const review=target.closest('[data-review]');if(review){runAction(async()=>{if(!state.bundle||state.bundle.id!==state.selected)throw Error('Mở lại diff để lấy digest hiện tại.');if(!$('[data-review-ack]').checked)throw Error('Xác nhận đã đọc diff và bằng chứng test.');const notes=$('[data-review-notes]').value.trim();if(!notes)throw Error('Nhập nhận xét review.');const id=state.selected;await api(`/tasks/${id}/review`,{verdict:review.dataset.review,patch_sha256:state.bundle.patch_sha256,notes});notify('Đã ghi nhận review cho đúng digest.');await refreshData();await selectTask(id);await detailAction('diff');});return;}
+-    const node=target.closest('[data-node]');if(node){const kind=node.dataset.node,p=kind.includes('claude')?'claude':kind.includes('codex')?'codex':null,t=state.tasks.find(t=>p?t.provider===p:kind==='review'?t.status==='awaiting_review':kind==='export'?t.status==='approved':t.status==='queued');if(t)runAction(()=>selectTask(t.id));else notify('Chưa có nhiệm vụ tại bước này.');return;}
++    const node=target.closest('[data-node]');if(node){const kind=node.dataset.node;state.flowNode=kind;const t=state.tasks.find(t=>t.id===node.dataset.taskId);if(t)runAction(()=>selectTask(t.id));else notify('Chưa có nhiệm vụ tại bước này.');return;}
+     if(action==='open-task'){const t=state.tasks.find(t=>t.status==='awaiting_review')||state.tasks[0];if(t)runAction(()=>selectTask(t.id));else navigate('tasks');}
+     const layout=target.closest('[data-console-layout]');if(layout){state.layout=layout.dataset.consoleLayout;state.focus=null;state.windowPage=1;renderWindows();refreshWindows();closeSettings();}
+     const mode=target.closest('[data-console-mode]');if(mode){state.mode=mode.dataset.consoleMode;state.focus=null;renderWindows();refreshWindows();closeSettings();}

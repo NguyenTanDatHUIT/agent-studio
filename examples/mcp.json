@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agent-orchestrator": {
+      "type": "stdio",
+      "command": "C:/Tools/agent-orchestrator/.venv/Scripts/python.exe",
+      "args": ["-m", "agent_orchestrator", "--config", "C:/AgentControl/myapp.json", "serve"]
+    }
+  }
+}
