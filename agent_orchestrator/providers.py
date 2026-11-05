@@ -15,7 +15,7 @@ def argv(config, provider):
                 '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands',
                 '--no-session-persistence']
     elif provider == 'codex':
-        args = ['exec', '--json', '--ephemeral', '--ignore-user-config', '--ignore-rules',
+        args = ['exec', '-c', 'windows.sandbox="elevated"', '--json', '--ephemeral', '--ignore-user-config', '--ignore-rules',
                 '--sandbox', 'workspace-write', '-c', 'approval_policy="never"',
                 '-c', 'sandbox_workspace_write.network_access=false',
                 '-c', 'sandbox_workspace_write.writable_roots=[]',

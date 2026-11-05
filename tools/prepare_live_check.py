@@ -37,7 +37,7 @@ def main():
         for name, executable in discover().items():
             data['providers'][name]['command'] = executable
         data.update(acknowledge_local_execution=True, timeout_seconds=120, agent_env_allow=['CODEX_HOME'])
-        data['tests'] = {'functional': [sys.executable, '-B', 'check.py']}
+        data['tests'] = {'functional': [sys.executable, '-B', '-c', "import os,runpy,sys; sys.path.insert(0,os.getcwd()); runpy.run_path('check.py',run_name='__main__')"]}
         config.write_text(json.dumps(data, indent=2), encoding='utf-8')
     engine = Engine(Config(config))
     pending = any(row['status'] in {'queued', 'running'} for row in engine.db.list())

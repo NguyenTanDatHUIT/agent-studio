@@ -8,8 +8,9 @@ Mở liên kết Dashboard được in trong terminal. Xem [hướng dẫn web a
 
 **Tiếp tục chạy thật:** [hướng dẫn CLI thật](docs/LIVE-RUN.md). `Start-LiveCheck.cmd`
 mở repo kiểm tra riêng bằng Codex thật; launcher với config nay chạy web kèm runner.
-CLI đã xác nhận đăng nhập nhưng lượt task thật trong môi trường agent hiện tại
-bị chặn quyền khởi tạo app-server; chưa xác minh model sửa code thành công.
+Đã xác minh Codex và Claude thật sửa code trên repo calculator thử riêng, chạy
+3 kiểm tra chức năng đạt và dừng ở chờ review. Chưa xác minh review/export/áp
+patch trên dự án thật. Xem [báo cáo Claude](NhatKyCongViec/2026-11-05-claude-live-check.md).
 
 Python 3.11+, chỉ dùng thư viện chuẩn khi chạy. Claude Code **Agent 0** dùng MCP
 để giao việc cho Claude Worker / Codex Worker, đọc kết quả, review và xuất patch.
