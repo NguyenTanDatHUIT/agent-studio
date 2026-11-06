@@ -1,5 +1,7 @@
 # Kiến trúc
 
+Hệ thống là một máy chủ MCP bằng Python cho phép Agent 0 xếp hàng, theo dõi và duyệt các tác vụ, được lưu trong SQLite cùng nhật ký kiểm toán. Các runner (Claude, Codex) nhận tác vụ theo cơ chế atomic claim, làm việc trong worktree riêng, chạy test rồi xuất patch kèm manifest để con người tích hợp.
+
 ```text
 Claude Code Agent 0
        | MCP stdio: queue/status/review/export

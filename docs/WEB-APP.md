@@ -1,4 +1,5 @@
 # Agent Studio — web app local
+Ghi chú: dashboard chỉ lắng nghe trên localhost.
 
 Giao diện được triển khai từ mẫu `agent-studio-giao-dien.html` người dùng cung cấp ngày
 05/11/2026. Giữ sidebar, màu sắc, sơ đồ điều phối, cửa sổ CMD và thanh cài đặt bố cục.
