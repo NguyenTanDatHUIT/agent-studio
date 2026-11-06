@@ -22,6 +22,7 @@ def discover():
         'codex': [shutil.which('codex.exe'),
                   *sorted((user / '.codex/packages/app-server-daemon/releases').glob('*/bin/codex.exe'), reverse=True),
                   npm / '@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe'],
+        'agy': [shutil.which('agy.exe'), user / 'AppData/Local/agy/bin/agy.exe'],
         'claude': [shutil.which('claude.exe'), user / '.local/bin/claude.exe',
                    npm / '@anthropic-ai/claude-code/bin/claude.exe'],
     }
@@ -34,7 +35,7 @@ def discover():
                     break
                 except (OSError, ValueError, OrchError):
                     continue
-        if name not in found and shutil.which('node'):
+        if name not in found and name != 'agy' and shutil.which('node'):
             script = npm / ('@openai/codex/bin/codex.js' if name == 'codex' else '@anthropic-ai/claude-code/cli.js')
             try:
                 if script.is_file():

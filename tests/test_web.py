@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import http.client
 import json
+import os
 import threading
+import time
+import unittest
 
 from tests.test_orchestrator import Fixture
 from agent_orchestrator.web import WebServer
@@ -135,3 +138,43 @@ class WebTests(Fixture):
         self.assertEqual(response[1]['status'], 'changes_requested')
         self.assertEqual(self.request(base + '/download/patch')[0], 400)
         self.assertEqual(len(self.e.db.list()), 1)
+
+
+class TerminalTests(WebTests):
+    def test_terminal_routes_are_authenticated_and_fixed_kinds_only(self):
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'agent0'}, {'Authorization': ''})[0], 401)
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'shell'})[0], 400)
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'agent0', 'command': 'cmd'})[0], 400)
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'worker', 'task_id': '../x'})[0], 400)
+        self.assertEqual(self.request('/api/terminals/nope/output')[0], 400)
+
+    @unittest.skipUnless(os.name == 'nt', 'ConPTY is Windows only')
+    def test_conpty_session_roundtrip(self):
+        from agent_orchestrator.terminals import Session
+        session = Session('t', 'x', 't', [os.environ['COMSPEC']], os.getcwd(), dict(os.environ), 100, 30)
+        self.addCleanup(session.close)
+        offset = 0
+        deadline = time.time() + 15
+        seen = b''
+        session.write('echo roundtrip-ok\r')
+        while b'roundtrip-ok' not in seen and time.time() < deadline:
+            _, data, offset, _ = session.read(offset, 1)
+            seen += data
+        self.assertIn(b'roundtrip-ok', seen)
+        session.write('exit\r')
+        deadline = time.time() + 10
+        while session.alive and time.time() < deadline:
+            time.sleep(.2)
+        self.assertFalse(session.alive)
+
+    def test_bridge_is_read_only_and_key_protected(self):
+        key = {'X-Bridge-Key': self.server.bridge_key, 'Authorization': ''}
+        self.assertEqual(self.request('/api/bridge/terminals', headers={'Authorization': ''})[0], 401)
+        self.assertEqual(self.request('/api/bridge/terminals', headers={'X-Bridge-Key': 'wrong', 'Authorization': ''})[0], 401)
+        status, data, _ = self.request('/api/bridge/terminals', headers=key)
+        self.assertEqual((status, data), (200, []))
+        self.assertEqual(self.request('/api/bridge/terminals/nope', headers=key)[0], 400)
+
+    def test_agent_kind_requires_known_provider(self):
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'agent', 'provider': 'bash'})[0], 400)
+        self.assertEqual(self.request('/api/terminals/open', {'kind': 'agent'})[0], 400)

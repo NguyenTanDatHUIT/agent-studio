@@ -23,8 +23,8 @@ if not defined studioPython (
 )
 if "%~1"=="" (
     echo OFFLINE DEMO: no model calls. Pass a config file path for a real project.
-    "%studioPython%" %studioPrefix% -m agent_orchestrator web --demo
+    "%studioPython%" %studioPrefix% -m agent_orchestrator web --demo --open
 ) else (
-    "%studioPython%" %studioPrefix% -m agent_orchestrator --config "%~f1" web --run-workers
+    "%studioPython%" %studioPrefix% -m agent_orchestrator --config "%~f1" web --run-workers --open
 )
 exit /b %errorlevel%

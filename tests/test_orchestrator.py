@@ -366,7 +366,7 @@ class MCPTests(Fixture):
         self.assertEqual(s.dispatch({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'})['error']['code'], -32002)
         s = self.ready()
         tools = s.dispatch({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']
-        self.assertEqual(len(tools), 8)
+        self.assertEqual(len(tools), 10)
         self.assertFalse(any('merge' in t['name'] for t in tools))
 
     def test_tool_validation_and_enqueue(self):
@@ -408,7 +408,7 @@ class MCPTests(Fixture):
         self.assertEqual(p.returncode, 0, p.stderr)
         output = [json.loads(line) for line in p.stdout.splitlines()]
         self.assertEqual(len(output), 2)
-        self.assertEqual(len(output[1]['result']['tools']), 8)
+        self.assertEqual(len(output[1]['result']['tools']), 10)
 
 
 if __name__ == '__main__':

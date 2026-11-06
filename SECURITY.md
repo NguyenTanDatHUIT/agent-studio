@@ -68,3 +68,10 @@ không thực hiện tự sửa vòng lặp không giới hạn, không giả s�
 không gọi tài khoản mô hình khi test offline. Không có server TCP công khai.
 MCP client được xem là bên được tin cậy để tạo task và ghi review, không có auth
 riêng trên stdio. Không có hạn mức chi phí nhà cung cấp được bảo đảm từ phía server.
+
+## Terminal nhúng trong dashboard
+
+Dashboard có thể mở phiên terminal tương tác (Agent 0 hoặc worker trong worktree của task).
+Phiên chạy bằng quyền tài khoản Windows của bạn; ai có token dashboard có thể gõ vào phiên
+đó. Token chỉ có trên loopback và đổi mỗi lần chạy. Không chia sẻ liên kết Dashboard.
+Terminal tương tác không dùng chế độ restricted của runner.

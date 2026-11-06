@@ -38,6 +38,7 @@ def parser():
     web = sub.add_parser('web', help='Local web dashboard; runners remain separate processes')
     web.add_argument('--port', type=int, default=8765)
     web.add_argument('--demo', action='store_true', help='Disposable offline demo; no model calls')
+    web.add_argument('--open', action='store_true', help='Open the dashboard in the default browser')
     web.add_argument('--run-workers', action='store_true', help='Run configured providers with the web server; stop together')
     for name in ('show', 'events', 'cancel', 'review', 'export', 'abandon'):
         cmd = sub.add_parser(name)
@@ -61,7 +62,7 @@ def main(argv=None):
             if args.run_workers:
                 raise OrchError('--run-workers requires a real config; cannot combine with --demo')
             from .demo import serve_demo
-            serve_demo(args.port)
+            serve_demo(args.port, open_browser=args.open)
             return 0
         if args.action == 'init':
             target = Path(args.config).resolve()
@@ -94,7 +95,7 @@ def main(argv=None):
                 return 0
             if args.action == 'web':
                 from .web import serve_web
-                serve_web(engine, args.port, run_workers=args.run_workers)
+                serve_web(engine, args.port, run_workers=args.run_workers, open_browser=args.open)
                 return 0
             if args.action == 'doctor':
                 output = {'repo': str(cfg.repo), 'state': str(cfg.state), 'base_commit': engine.git.resolve_base(),

@@ -102,4 +102,5 @@ def template(repo: str, state: str):
             'acknowledge_local_execution': False, 'timeout_seconds': 900,
             'output_limit_bytes': 8_000_000, 'agent_env_allow': [],
             'providers': {'claude': {'command': [], 'model': None},
-                          'codex': {'command': [], 'model': None}}, 'tests': {}}
+                          'codex': {'command': [], 'model': None},
+                          'agy': {'command': [], 'model': None}}, 'tests': {}}

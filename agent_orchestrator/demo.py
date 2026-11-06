@@ -12,7 +12,7 @@ from .engine import Engine
 from .web import serve_web
 
 
-def serve_demo(port=8765):
+def serve_demo(port=8765, open_browser=False):
     with tempfile.TemporaryDirectory(prefix='agent-studio-offline-') as folder:
         root = Path(folder)
         repo = root / 'OFFLINE-DEMO'
@@ -41,4 +41,4 @@ def serve_demo(port=8765):
         engine.work_once('codex')
         engine.enqueue('claude', '[OFFLINE DEMO] Nhiệm vụ trong hàng đợi', ['src'], ['unit'])
         print('OFFLINE DEMO: disposable data; no Claude/Codex model calls. Queue has no active runner.', flush=True)
-        serve_web(engine, port)
+        serve_web(engine, port, open_browser=open_browser)

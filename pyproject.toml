@@ -17,4 +17,4 @@ agent-orch = "agent_orchestrator.cli:main"
 include = ["agent_orchestrator*"]
 
 [tool.setuptools.package-data]
-agent_orchestrator = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt"]
+agent_orchestrator = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/vendor/*"]

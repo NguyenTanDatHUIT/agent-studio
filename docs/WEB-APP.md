@@ -108,3 +108,17 @@ node tests/web_ui.cjs 'http://127.0.0.1:8765/#token=TOKEN_IN_TERMINAL'
 phóng to, sắp xếp, thêm cửa sổ, tạo task, escape HTML, hủy, review/digest, xuất và tải.
 Không dùng kiểm thử này với config dự án thật. Chưa xác minh pixel/layout trong trình
 duyệt vì quyền điều khiển Edge bị từ chối. Chưa gọi Claude/Codex thật.
+
+## Terminal thật trong dashboard
+
+Thẻ **Agent 0** tự mở một phiên Claude Code tương tác (ConPTY) đã nối sẵn MCP orchestrator;
+bạn giao việc và chọn Claude/Codex làm việc ở đây. Thẻ Claude/Codex Worker có nút
+**Mở terminal**: chạy CLI tương tác của provider trong worktree của task gần nhất, để
+bạn trao đổi trực tiếp với worker. Không còn ô nhập giả trên các thẻ.
+
+Giới hạn an toàn: trình duyệt chỉ chọn loại phiên cố định (`agent0` hoặc `worker` + task id);
+executable lấy từ config của chủ máy, không nhận lệnh từ trình duyệt. Mọi API terminal
+yêu cầu bearer token và same-origin như các API khác. Terminal tương tác dùng cơ chế xin
+quyền mặc định của CLI (không có cờ restricted của runner), nên bạn là người chấp thuận
+từng thao tác. Yêu cầu Windows 10 1809+ (ConPTY). xterm.js 5.5.0 (MIT) được đóng gói trong
+`web_assets/vendor/`, không dùng CDN.
