@@ -49,6 +49,42 @@ def clean_transcript_text(text: str) -> str:
     return CONTROL.sub('', text)
 
 
+def title_from_keys(keys: str, limit: int = 80):
+    """The first line a person typed, as it would look on screen.
+
+    Raw keystrokes contain escape sequences (xterm focus reports ESC[I / ESC[O, arrows, bracketed paste) and
+    corrections (Backspace/DEL, sent by Vietnamese IMEs while composing). Replay them instead of storing them.
+    Returns None until a non-empty line has been entered.
+    """
+    import unicodedata
+    line = []
+    for ch in strip_ansi(str(keys)):
+        if ch in (chr(0x7f), chr(8)):  # DEL / Backspace
+            if line:
+                line.pop()
+        elif ch in (chr(13), chr(10)):  # Enter
+            if ''.join(line).strip():
+                break
+            line.clear()
+        elif ch == chr(9):  # Tab
+            line.append(' ')
+        elif ord(ch) >= 32 and not 0x7f <= ord(ch) <= 0x9f:
+            line.append(ch)
+    text = unicodedata.normalize('NFC', ''.join(line))
+    text = ' '.join(text.split())
+    return text[:limit] or None
+
+
+_LEFTOVER_FOCUS = re.compile(r'^(?:\[[IO])+')
+
+
+def clean_title(title):
+    """Titles saved by older versions may start with the leftovers of focus reports (\"[O[I...\")."""
+    if not isinstance(title, str):
+        return title
+    return _LEFTOVER_FOCUS.sub('', title).strip()
+
+
 def mask_secrets(text: str) -> str:
     """Redact tokens, API keys, passwords and bearer credentials from text."""
     for pattern, replacement in SECRET_PATTERNS:

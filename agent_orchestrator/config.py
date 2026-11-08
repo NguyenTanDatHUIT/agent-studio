@@ -63,6 +63,15 @@ class Config:
             raise OrchError("agent_env_allow must contain environment variable names")
         if type(self.data.get('acknowledge_local_execution', False)) is not bool:
             raise OrchError("acknowledge_local_execution must be a boolean")
+        if 'terminal_idle_notify' in self.data and type(self.data['terminal_idle_notify']) is not bool:
+            raise OrchError("terminal_idle_notify must be a boolean")
+        self.terminal_idle_notify = self.data.get('terminal_idle_notify', True)
+        self.terminal_idle_debounce = float(self.data.get('terminal_idle_debounce_seconds', self.data.get('terminal_idle_debounce', 4.0)))
+        if not 0.1 <= self.terminal_idle_debounce <= 300:
+            raise OrchError("terminal_idle_debounce must be between 0.1 and 300 seconds")
+        self.terminal_idle_rate_limit = float(self.data.get('terminal_idle_rate_limit_seconds', self.data.get('terminal_idle_rate_limit', 5.0)))
+        if not 0.1 <= self.terminal_idle_rate_limit <= 300:
+            raise OrchError("terminal_idle_rate_limit must be between 0.1 and 300 seconds")
         self.timeout = self.data.get('timeout_seconds', 900)
         self.output_limit = self.data.get('output_limit_bytes', 8_000_000)
         if type(self.timeout) is not int or not 1 <= self.timeout <= 86400:

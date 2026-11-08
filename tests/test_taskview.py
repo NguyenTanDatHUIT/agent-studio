@@ -25,6 +25,8 @@ class Stub:
         self.agent = int(sid.split('-')[1]) if '-' in sid and sid.split('-')[1].isdigit() else None
         self.exit_code = None if alive else 0
         self.written, self.created = [], time.time()
+        self.cond = threading.Condition()
+        self.buffer = bytearray()
 
     @property
     def alive(self):
@@ -507,6 +509,10 @@ class BridgeRoutes(Fixture):
         s = Server(self.e)
         self.assertEqual(s.call('send_to_terminal', {'terminal_id': 'Codex #1', 'text': 'fix src/app.py'})['terminal'], 'codex-1')
         self.assertEqual(self.codex.written, ['fix src/app.py', '\r'])
+        self.codex.buffer = bytearray("line 1\n⣷ Generating...\nDone!\n".encode('utf-8'))
+        read_clean = s.call('read_terminal', {'terminal_id': 'codex-1', 'clean': True})
+        self.assertNotIn("Generating", read_clean['text'])
+        self.assertIn("Done!", read_clean['text'])
         with self.assertRaisesRegex(OrchError, 'Unknown terminal'):
             s.call('read_terminal', {'terminal_id': 'codex#7'})
         with self.assertRaisesRegex(OrchError, 'quá nhanh'):

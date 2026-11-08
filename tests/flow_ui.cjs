@@ -21,9 +21,12 @@ const {JSDOM}=require('jsdom');
   const a='a'.repeat(24),b='b'.repeat(24),c='c'.repeat(24);
   let tasks=[task(a,'claude','queued'),task(b,'codex','queued')],events=[];
   let agent0={connected:false},sessions=[],runners={managed:false,providers:{}},agents=[{agent:2,name:'codex 2',provider:'codex',kind:'queue',remember_context:true}],defaultRemember=true,posts=[],failNext=null;
+  // Field names are exactly what /api/conversations returns (store.conversations + `live`), so a rename is caught here.
+  let chatStatus={windows:3,tasks:0,workflows:0,can_start:true,reason:null,agent0:true},chatPosts=0;
   let conversations=[
-    {id:'conv-1',session_id:'s-1',kind:'agent',provider:'codex',agent_number:1,title:'Khởi tạo dự án',repo:'default',task_id:null,cwd:'C:/fixture',status:'exited',created_at:'2026-11-08T00:00:00Z',updated_at:'2026-11-08T00:10:00Z',terminal_id:'codex-1'},
-    {id:'conv-2',session_id:'s-2',kind:'worker',provider:'claude',agent_number:2,title:'Sửa lỗi test',repo:'default',task_id:a,cwd:'C:/fixture',status:'awaiting_review',created_at:'2026-11-07T12:00:00Z',updated_at:'2026-11-07T12:30:00Z',terminal_id:'claude-2'}
+    {id:'conv-1',terminal_key:'codex-1',session_id:'s-1',kind:'agent',provider:'codex',agent_n:1,title:'Khởi tạo dự án',task_id:null,cwd:'C:/fixture',status:'closed',live:false,started:'2026-11-08T00:00:00+00:00',last_active:'2026-11-08T00:10:00+00:00',transcript_path:'x'},
+    {id:'conv-2',terminal_key:'claude-2',session_id:'s-2',kind:'agent',provider:'claude',agent_n:2,title:'Sửa lỗi test',task_id:a,cwd:'C:/fixture',status:'failed',live:false,started:'2026-11-07T12:00:00+00:00',last_active:'2026-11-07T12:30:00+00:00',transcript_path:'y'},
+    {id:'conv-3',terminal_key:'agent0',session_id:'s-3',kind:'agent0',provider:'claude',agent_n:null,title:null,task_id:null,cwd:'C:/fixture',status:'active',live:true,started:'2026-11-06T09:05:00+00:00',last_active:'2026-11-06T09:30:00+00:00',transcript_path:'z'}
   ];
   const routes=input=>{
     if(input==='/api/config')return {repo:'C:/fixture',base_ref:'HEAD',providers:{claude:true,codex:true},tests:['unit'],execution_enabled:true};
@@ -35,6 +38,7 @@ const {JSDOM}=require('jsdom');
     if(input==='/api/agents')return agents;
     if(input==='/api/settings')return {default_remember:defaultRemember};
     if(input==='/api/workflows')return [];
+    if(input==='/api/chat')return chatStatus;
     if(typeof input==='string'&&input.startsWith('/api/conversations')){
       if(input.includes('/transcript'))return {lines:[{seq:1,timestamp:'2026-11-08T00:01:00Z',text:'$ codex task\nTask started'}],next_after:1,has_more:false};
       const url=new URL('http://localhost'+input);
@@ -48,6 +52,7 @@ const {JSDOM}=require('jsdom');
       posts.push({input,body:JSON.parse(init.body)});
       if(failNext){const error=failNext;failNext=null;return {ok:false,status:400,json:async()=>({error})};}
       if(input==='/api/tasks')return {ok:true,json:async()=>({id:'a'.repeat(24),provider:'codex',agent:2,round:3})};
+      if(input==='/api/chat/new'){chatPosts++;return {ok:true,json:async()=>({closed:3,agents_removed:3,agent0:{id:'agent0'}})};}
       if(typeof input==='string'&&input.endsWith('/delete')){const id=input.split('/')[3];conversations=conversations.filter(c=>c.id!==id);return {ok:true,json:async()=>({deleted:1,files_removed:1})};}
       if(input==='/api/conversations/delete-all'){const n=conversations.length;conversations=[];return {ok:true,json:async()=>({deleted:n,files_removed:n,kept_open:0})};}
       if(typeof input==='string'&&input.includes('/resume'))return {ok:true,json:async()=>({id:'codex-1',terminal_id:'codex-1',provider:'codex',title:'Khởi tạo dự án'})};
@@ -244,14 +249,43 @@ const {JSDOM}=require('jsdom');
   const histModal=d.querySelector('.ao-history-dialog');
   assert(histModal&&histModal.hasAttribute('open'),'history dialog opens on click');
   const histRows=()=>[...histModal.querySelectorAll('.ao-history-row')];
-  assert.equal(histRows().length,2,'two conversation rows rendered');
+  assert.equal(histRows().length,3,'three conversation rows rendered');
+  // Regression: the list once read created_at/agent_number/terminal_id, which the API never sends (blank time, "Khác" group).
+  assert(histRows().every(r=>/^\d{2}:\d{2}$/.test(r.querySelector('.ao-history-time').textContent.trim())),'every row shows its start time');
+  const groupTitles=[...histModal.querySelectorAll('.ao-history-group-title')].map(x=>x.textContent.trim());
+  assert(groupTitles.length>=2&&!groupTitles.includes('Khác'),'rows are grouped by real dates, not "Khác": '+groupTitles);
+  const rowOf=id=>histModal.querySelector(`[data-conv-id="${id}"]`);
+  assert(rowOf('conv-3').textContent.includes('Agent 0')&&rowOf('conv-3').textContent.includes('Phiên làm việc'),'untitled Agent 0 row has a fallback title');
+  assert(rowOf('conv-3').textContent.includes('Đang mở')&&rowOf('conv-3').querySelector('[data-conv-resume]').disabled&&rowOf('conv-3').querySelector('[data-conv-delete]').disabled,'a live conversation cannot be resumed or deleted');
+  assert(rowOf('conv-1').textContent.includes('Đã đóng')&&!rowOf('conv-1').querySelector('[data-conv-resume]').disabled,'a closed conversation can be resumed');
   assert(histModal.textContent.includes('Khởi tạo dự án'),'title is displayed');
   assert(histModal.textContent.includes('Codex 1')&&histModal.textContent.includes('Claude 2'),'agent badges are shown');
 
   // Filter provider
   const provSelect=histModal.querySelector('[data-history-provider]');
   provSelect.value='claude';provSelect.dispatchEvent(new w.Event('change'));await flush();
-  assert.equal(histRows().length,1,'filtering by claude yields one row');
+  assert.equal(histRows().length,2,'filtering by claude yields its two rows');
+
+  // Template-styled dropdown replaces the native popup but the real <select> stays the source of truth.
+  provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();
+  provSelect.dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  const selMenu=d.querySelector('[data-select-menu]');
+  assert(selMenu&&selMenu.querySelectorAll('[role="option"]').length===5,'custom menu lists every option of the select');
+  assert.equal(selMenu.querySelector('[aria-selected="true"]').textContent,'Tất cả agent','current value is marked');
+  provSelect.dispatchEvent(new w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+  provSelect.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));await flush();
+  assert.equal(provSelect.value,'agent0','keyboard (arrow + Enter) chooses an item');
+  assert(!d.querySelector('[data-select-menu]'),'menu closes after choosing');
+  provSelect.dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  d.querySelector('[data-select-menu] [data-i="2"]').dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));await flush();
+  assert.equal(provSelect.value,'claude','clicking an item updates the real select and fires change');
+  assert.equal(histRows().length,2,'the change handler ran (filtered to claude)');
+  provSelect.dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  provSelect.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+  assert(!d.querySelector('[data-select-menu]')&&provSelect.value==='claude','Escape closes the menu without changing the value');
+  provSelect.dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  d.querySelector('.ao-history-header h2').dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  assert(!d.querySelector('[data-select-menu]'),'clicking elsewhere closes the menu');
 
   // View transcript dialog
   const viewBtn=histModal.querySelector('[data-conv-view="conv-2"]');
@@ -272,7 +306,7 @@ const {JSDOM}=require('jsdom');
   provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();
   histModal.querySelector('[data-conv-delete="conv-2"]').click();await flush();
   assert.equal(posts.at(-1).input,'/api/conversations/conv-2/delete','delete POST sent to API');
-  assert.equal(histRows().length,1,'deleted row disappears from the list');
+  assert.equal(histRows().length,2,'deleted row disappears from the list');
   assert(!histModal.textContent.includes('Sửa lỗi test'));
   w.confirm=()=>false;
   histModal.querySelector('[data-history-clear]').click();await flush();
@@ -292,6 +326,32 @@ const {JSDOM}=require('jsdom');
   assert.equal(posts.at(-1).input,'/api/conversations/conv-1/resume','resume POST sent to API');
   assert(d.querySelector('[data-toast]').textContent.includes('Đã khôi phục phiên'),'toast confirms resume');
   assert(!histModal.hasAttribute('open'),'history dialog closes on resume');
+  // New chat: confirmation modal, blocked while work runs, then closes everything and reopens Agent 0.
+  const chatBtn=d.querySelector('[data-console-action="newchat"]');
+  assert(chatBtn&&chatBtn.textContent.includes('Cuộc trò chuyện mới'),'new-chat button is in the toolbar');
+  chatBtn.click();await flush();
+  const chatDlg=d.querySelector('.ao-chat-dialog');
+  assert(chatDlg&&chatDlg.hasAttribute('open'),'clicking the button opens the confirmation modal, it does not act');
+  assert.equal(chatPosts,0,'nothing is sent before the user confirms');
+  assert(chatDlg.textContent.includes('3 cửa sổ')&&chatDlg.textContent.includes('Lịch sử')&&chatDlg.textContent.includes('từ 1')&&chatDlg.textContent.includes('Agent 0'),'modal explains what will happen');
+  assert(!chatDlg.querySelector('[data-chat-confirm]').disabled&&chatDlg.querySelector('[data-chat-block]').hidden,'confirm is available when nothing is running');
+  chatDlg.querySelector('[data-chat-cancel]').click();await flush();
+  assert(!chatDlg.hasAttribute('open')&&chatPosts===0,'cancel closes the modal and sends nothing');
+  chatStatus={windows:2,tasks:1,workflows:0,can_start:false,reason:'Chưa thể bắt đầu cuộc trò chuyện mới: còn 1 nhiệm vụ đang chạy hoặc chờ chạy. Chờ xong hoặc hủy chúng trước.',agent0:true};
+  chatBtn.click();await flush();
+  assert(chatDlg.querySelector('[data-chat-confirm]').disabled&&!chatDlg.querySelector('[data-chat-block]').hidden&&chatDlg.querySelector('[data-chat-block]').textContent.includes('nhiệm vụ'),'confirm is disabled and the reason is shown while work runs');
+  chatDlg.querySelector('[data-chat-confirm]').click();await flush();
+  assert.equal(chatPosts,0,'a disabled confirm sends nothing');
+  chatDlg.querySelector('[data-chat-cancel]').click();await flush();
+  chatStatus={windows:3,tasks:0,workflows:0,can_start:true,reason:null,agent0:true};
+  chatBtn.click();await flush();
+  chatDlg.querySelector('[data-chat-confirm]').click();await flush();
+  assert.deepEqual(posts.at(-1),{input:'/api/chat/new',body:{confirm:true,cols:100,rows:30}},'confirm sends the explicit confirmation');
+  assert(!chatDlg.hasAttribute('open'),'modal closes after a successful reset');
+  assert(d.querySelector('[data-toast]').textContent.includes('cuộc trò chuyện mới')&&d.querySelector('[data-toast]').textContent.includes('đóng 3 cửa sổ'),'toast reports what was closed');
+  // The add-terminal dialog no longer asks for a working folder.
+  assert(!d.querySelector('[data-add-folder]'),'no working-folder select in the add-terminal dialog');
+  assert(!/Thư mục làm việc/.test(d.getElementById('ao-studio').textContent),'no "Thư mục làm việc" field anywhere');
   assert.deepEqual(errors,[]);
   console.log('PASS: fixed board CSS, 7 nodes/7 edges, endpoint math, horizontal scroller, real event mapping, running-task selection, selected vs running, stable SVG, stopped/review/unknown states, existing task handler, reduced-motion rules, live (non-sample) Agent 0/runner/terminal/event data.');
   dom.window.close();

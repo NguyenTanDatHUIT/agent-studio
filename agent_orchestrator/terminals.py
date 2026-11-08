@@ -25,8 +25,8 @@ from pathlib import Path
 
 from .config import OrchError, inside
 from .providers import SESSION
-from .transcripts import append_transcript_entry
-from .store import now
+from .transcripts import append_transcript_entry, title_from_keys
+from .store import chat_busy_message, now
 
 BUFFER_LIMIT = 1_000_000
 MAX_SESSIONS = 12
@@ -52,6 +52,47 @@ ACTIVE_RUNNER = {'idle', 'polling', 'busy', 'starting'}
 def clean(text):
     """Plain text safe to print into a terminal: no escape sequences, CR normalised to LF."""
     return CONTROL.sub('', str(text).replace('\r\n', '\n').replace('\r', '\n'))
+
+
+BRAILLE_SPINNERS = re.compile(r'[\u2800-\u28ff⣾⣽⣻⢿⡿⣟⣯⣷]')
+SPINNER_STATUS_RE = re.compile(r'(?:generating\.\.\.|esc to cancel)', re.IGNORECASE)
+
+
+def clean_terminal_output(text):
+    """Filter Braille spinners, Generating/esc-to-cancel lines, and duplicate redraw lines."""
+    text = BRAILLE_SPINNERS.sub('', text)
+    lines = text.split('\n')
+    cleaned = []
+    last_stripped = None
+    for line in lines:
+        stripped = line.strip()
+        if SPINNER_STATUS_RE.search(stripped):
+            continue
+        if not stripped:
+            if last_stripped != '':
+                cleaned.append('')
+                last_stripped = ''
+            continue
+        if stripped == last_stripped:
+            continue
+        cleaned.append(line)
+        last_stripped = stripped
+    return '\n'.join(cleaned)
+
+
+def is_terminal_spinning(buffer):
+    """Check if the tail of the terminal output indicates active spinner / generation."""
+    if not buffer:
+        return False
+    raw = bytes(buffer[-4000:])
+    text = ANSI.sub('', raw.decode('utf-8', 'replace')).replace('\r\n', '\n').replace('\r', '\n')
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    if not lines:
+        return False
+    last = lines[-1]
+    if BRAILLE_SPINNERS.search(last) or SPINNER_STATUS_RE.search(last):
+        return True
+    return False
 
 PSEUDOCONSOLE_ATTRIBUTE = 0x00020016
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
@@ -143,6 +184,11 @@ class Session:
         self.base = 0  # absolute offset of buffer[0]
         self.exit_code = None
         self.created = time.time()
+        self.last_output_time = self.created
+        self.last_input = 0.0
+        self.idle = True
+        self.idle_notified = True
+        self.has_active_work = False
         in_read, in_write, out_read, out_write = (wintypes.HANDLE() for _ in range(4))
         if not k.CreatePipe(ctypes.byref(in_read), ctypes.byref(in_write), None, 0) or \
            not k.CreatePipe(ctypes.byref(out_read), ctypes.byref(out_write), None, 0):
@@ -189,6 +235,7 @@ class Session:
                     drop = len(self.buffer) - BUFFER_LIMIT
                     del self.buffer[:drop]
                     self.base += drop
+                self.last_output_time = time.time()
                 self.cond.notify_all()
             if self.transcript_path:
                 try:
@@ -205,6 +252,7 @@ class Session:
         time.sleep(.4)  # let conhost flush the last output before the pipe is closed
         with self.cond:
             self.exit_code = code.value
+            self.idle = False
             if self.resumed and self.exit_code != 0:
                 msg = b"\r\n\x1b[31;1m[AO] Khong the resume phien cu (session khong con hoac loi khoi dong).\r\nDe nghi mo 'Xem lai' de xem ban ghi man hinh truoc do.\x1b[0m\r\n"
                 self.buffer += msg
@@ -241,17 +289,22 @@ class Session:
             raise OrchError('Terminal has ended')
         if not system:
             self.last_input = time.time()  # a person is typing: the dashboard must not interleave its own notices
+            self.idle = False
+            self.idle_notified = False
+            self.has_active_work = True
             if not self.first_input_done and isinstance(data, str):
-                self.input_accumulator += data
-                if '\r' in self.input_accumulator or '\n' in self.input_accumulator or len(self.input_accumulator) >= 80:
-                    first_line = clean(self.input_accumulator).strip().split('\n')[0].split('\r')[0][:80]
-                    if first_line:
-                        self.first_input_done = True
-                        if self.on_title:
-                            try:
-                                self.on_title(first_line)
-                            except Exception:
-                                pass
+                self.input_accumulator = (self.input_accumulator + data)[-2000:]
+                typed = title_from_keys(self.input_accumulator)
+                entered = chr(13) in self.input_accumulator or chr(10) in self.input_accumulator
+                if typed and (entered or len(typed) >= 80):
+                    self.first_input_done = True
+                    if self.on_title:
+                        try:
+                            self.on_title(typed)
+                        except Exception:
+                            pass
+                elif entered:
+                    self.input_accumulator = ''  # e.g. Enter on a trust dialog: nothing typed yet
         if isinstance(data, str):
             data = unicodedata.normalize('NFC', data)
         raw, written = data.encode('utf-8', 'replace'), wintypes.DWORD()
@@ -698,9 +751,23 @@ def scan_agy_session(started_time, taken, alive=lambda: True, timeout=900.0, int
 
 
 class Terminals:
-    def __init__(self, cfg, db):
+    def __init__(self, cfg, db, idle_debounce=None):
         self.cfg = cfg
         self.db = db
+        if idle_debounce is not None:
+            self.idle_debounce = float(idle_debounce)
+        elif hasattr(cfg, 'terminal_idle_debounce'):
+            self.idle_debounce = float(cfg.terminal_idle_debounce)
+        elif isinstance(getattr(cfg, 'data', None), dict):
+            self.idle_debounce = float(cfg.data.get('terminal_idle_debounce_seconds', cfg.data.get('terminal_idle_debounce', 4.0)))
+        else:
+            self.idle_debounce = 4.0
+        if hasattr(cfg, 'terminal_idle_rate_limit'):
+            self.idle_rate_limit = float(cfg.terminal_idle_rate_limit)
+        elif isinstance(getattr(cfg, 'data', None), dict):
+            self.idle_rate_limit = float(cfg.data.get('terminal_idle_rate_limit_seconds', cfg.data.get('terminal_idle_rate_limit', 5.0)))
+        else:
+            self.idle_rate_limit = NOTICE_INTERVAL
         self.sessions = {}
         self.lock = threading.RLock()
         self.agent_views = {}     # agent number -> session id, so one agent never gets two windows
@@ -747,10 +814,38 @@ class Terminals:
             raise OrchError('Unknown terminal session')
         return session
 
+    def update_interactive_idle(self, s, now=None):
+        """Update idle status for an interactive agent terminal based on debounce and spinner check."""
+        if getattr(s, 'kind', None) != 'agent' or not getattr(s, 'alive', False) or getattr(s, 'closed', False) or getattr(s, 'exit_code', None) is not None:
+            return getattr(s, 'idle', False)
+        if now is None:
+            now = time.time()
+        if not getattr(s, 'has_active_work', False):
+            s.idle = True
+            return True
+        if getattr(s, 'idle', False):
+            return True
+        debounce = self.idle_debounce
+        last_out = getattr(s, 'last_output_time', getattr(s, 'created', now))
+        last_in = getattr(s, 'last_input', 0.0)
+        cond = getattr(s, 'cond', None)
+        if cond:
+            with cond:
+                buf = bytearray(getattr(s, 'buffer', b''))
+        else:
+            buf = bytearray(getattr(s, 'buffer', b''))
+        if (now - last_out >= debounce) and (now - last_in >= debounce) and not is_terminal_spinning(buf):
+            s.idle = True
+            return True
+        return False
+
     def describe(self, s):
+        if getattr(s, 'kind', None) == 'agent':
+            self.update_interactive_idle(s)
         return {'id': s.id, 'kind': s.kind, 'provider': getattr(s, 'provider', None), 'task_id': getattr(s, 'task_id', None),
                 'title': s.title, 'cwd': s.cwd, 'alive': s.alive, 'exit_code': s.exit_code, 'readonly': s.kind == 'worker',
-                'agent': getattr(s, 'agent', None), 'idle': getattr(s, 'idle', False), 'remember': getattr(s, 'remember', None)}
+                'agent': getattr(s, 'agent', None), 'idle': getattr(s, 'idle', False), 'remember': getattr(s, 'remember', None),
+                'gen': getattr(s, 'created', None)}
 
     def evict_finished(self):
         """Drop the oldest finished or idle agent window to make room. Caller holds the lock."""
@@ -822,35 +917,75 @@ class Terminals:
         """Tell Agent 0, in its own terminal, that agents finished or a workflow moved on. Only ids and statuses
         are typed (never worker output), one line at most every few seconds, and never while a person is typing."""
         session = self.sessions.get('agent0')
-        if session is None or not session.alive or session.closed:
+        if session is None or not getattr(session, 'alive', False) or getattr(session, 'closed', False):
             self.notice_cursor = None
             return
         if self.notice_cursor is None or self.notice_cursor[0] is not session:
             self.notice_cursor = (session, self.db.last_notice())  # only news from after this Agent 0 started
+            for s in self.sessions.values():
+                if getattr(s, 'kind', None) == 'agent' and getattr(s, 'idle', False):
+                    s.idle_notified = True
             return
         if not self.db.setting('notify_agent0', True):
             self.notice_cursor = (session, self.db.last_notice())
             return
         now = time.time()
-        if now - self.last_notice_sent < NOTICE_INTERVAL or now - getattr(session, 'last_input', 0) < 4:
+        rate_limit = getattr(self, 'idle_rate_limit', NOTICE_INTERVAL)
+        if now - self.last_notice_sent < rate_limit or now - getattr(session, 'last_input', 0) < 4:
             return
         items = self.db.notices_after(self.notice_cursor[1])
-        if not items:
+        if items:
+            line = '[AO] ' + '; '.join(i['text'] for i in items)
+            if len(line) > 600:
+                line = line[:590] + '…'
+            line += ' — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Xem get_task / list_workflows.'
+            line = re.sub(r'\s+', ' ', clean(line)).strip()
+            entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
+                     'sha256': hashlib.sha256(line.encode('utf-8')).hexdigest(), 'preview': line[:200], 'source': 'notice'}
+            with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+                audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            session.write(line, system=True)
+            time.sleep(.15)
+            session.write(chr(13), system=True)
+            self.notice_cursor = (session, items[-1]['id'])
+            self.last_notice_sent = now
             return
-        line = '[AO] ' + '; '.join(i['text'] for i in items)
-        if len(line) > 600:
-            line = line[:590] + '…'
-        line += ' — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Xem get_task / list_workflows.'
-        line = re.sub(r'\s+', ' ', clean(line)).strip()
-        entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
-                 'sha256': hashlib.sha256(line.encode('utf-8')).hexdigest(), 'preview': line[:200], 'source': 'notice'}
-        with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
-            audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
-        session.write(line, system=True)
-        time.sleep(.15)
-        session.write(chr(13), system=True)
-        self.notice_cursor = (session, items[-1]['id'])
-        self.last_notice_sent = now
+
+        notify_enabled = getattr(self.cfg, 'terminal_idle_notify', True)
+        if isinstance(getattr(self.cfg, 'data', None), dict):
+            notify_enabled = self.cfg.data.get('terminal_idle_notify', notify_enabled)
+        if not notify_enabled:
+            return
+
+        for s in list(self.sessions.values()):
+            if getattr(s, 'kind', None) != 'agent' or s.id == 'agent0' or not getattr(s, 'alive', False) or getattr(s, 'closed', False) or getattr(s, 'exit_code', None) is not None:
+                continue
+            self.update_interactive_idle(s, now)
+            if getattr(s, 'idle', False) and not getattr(s, 'idle_notified', False):
+                provider = getattr(s, 'provider', None)
+                agent_n = getattr(s, 'agent', None)
+                report_note = ""
+                if provider and agent_n is not None:
+                    report_rel = Path('reports') / f"{provider}-{agent_n}.md"
+                    cwd_val = getattr(s, 'cwd', None)
+                    cwd_report = Path(cwd_val) / report_rel if cwd_val else None
+                    repo_val = getattr(self.cfg, 'repo', None)
+                    repo_report = Path(repo_val) / report_rel if repo_val else None
+                    if (cwd_report and cwd_report.is_file()) or (repo_report and repo_report.is_file()):
+                        report_note = f" Báo cáo: reports/{provider}-{agent_n}.md"
+
+                line = f"[AO] {s.id} đã xong. Dùng read_terminal({s.id}) để xem kết quả.{report_note}"
+                line = re.sub(r'\s+', ' ', clean(line)).strip()
+                entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
+                         'sha256': hashlib.sha256(line.encode('utf-8')).hexdigest(), 'preview': line[:200], 'source': 'notice'}
+                with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+                    audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                session.write(line, system=True)
+                time.sleep(.15)
+                session.write(chr(13), system=True)
+                s.idle_notified = True
+                self.last_notice_sent = now
+                return
 
     def send(self, ref, text):
         """Agent 0 types one line into an interactive agent terminal. Always guarded, audited, rate limited."""
@@ -1018,6 +1153,13 @@ class Terminals:
                 self.validate_cwd(cwd, task_id)
                 if len(self.sessions) >= MAX_SESSIONS and not self.evict_finished():
                     raise OrchError(f'Đã mở {MAX_SESSIONS} cửa sổ. Đóng bớt một cửa sổ rồi thử lại.')
+                if number is not None:
+                    # A resumed conversation keeps its agent number only while that number is still its own. After a
+                    # new chat (numbering restarted) or when it now belongs to another agent, take the next free one.
+                    row = self.db.agent_get(number)
+                    taken = self.sessions.get(f'{provider}-{number}')
+                    if row is None or row['provider'] != provider or row['kind'] != 'terminal' or (taken is not None and taken.alive):
+                        number = None
                 if number is None:
                     number = self.db.agent_new(provider, 'terminal')
                 key = f'{provider}-{number}'
@@ -1183,9 +1325,59 @@ class Terminals:
             pass
         return res
 
+    def chat_status(self):
+        """What a new chat would do, so the dashboard can explain it before asking for confirmation."""
+        busy = self.db.chat_busy()
+        with self.lock:
+            windows = len(self.sessions)
+        reason = chat_busy_message(busy['tasks'], busy['workflows']) if busy['tasks'] or busy['workflows'] else None
+        return {'windows': windows, 'tasks': busy['tasks'], 'workflows': busy['workflows'],
+                'can_start': reason is None, 'reason': reason,
+                'agent0': self.cfg.data.get('acknowledge_local_execution') is True}
+
+    def new_chat(self, cols=100, rows=30):
+        """End the current chat: close every window (each stays in the history), restart agent numbering at 1
+        and open a fresh Agent 0. Refuses, before closing anything, while tasks or workflows are still running."""
+        busy = self.db.chat_busy()
+        if busy['tasks'] or busy['workflows']:
+            raise OrchError(chat_busy_message(busy['tasks'], busy['workflows']))
+        live = self.live_conversation_ids()
+        with self.lock:
+            ids = list(self.sessions)
+        for sid in ids:
+            self.close(sid)
+        stamp = datetime.now(timezone.utc).isoformat()
+        for conv_id in live:
+            try:
+                self.db.conversation_update(conv_id, status='closed', last_active=stamp)
+            except (OrchError, sqlite3.Error):
+                pass
+        reset = self.db.reset_chat()
+        with self.lock:
+            self.dismissed.clear()
+            self.skipped.clear()
+            self.agent_views.clear()
+            self.notice_cursor = None
+        agent0 = None
+        if self.cfg.data.get('acknowledge_local_execution') is True:
+            agent0 = self.open('agent0', cols=cols, rows=rows)
+        self._audit({'action': 'new_chat', 'closed': len(ids), 'agents_removed': reset['agents_removed']})
+        return {'closed': len(ids), 'agents_removed': reset['agents_removed'], 'agent0': agent0}
+
     def live_conversation_ids(self):
         with self.lock:
             return {getattr(s, 'conversation_id', None) for s in self.sessions.values() if s.alive} - {None}
+
+    def with_live_state(self, convs):
+        """Add `live` and correct stale status: a row left 'active' by a crash or restart is really closed."""
+        live = self.live_conversation_ids()
+        single = isinstance(convs, dict)
+        out = []
+        for c in ([convs] if single else convs):
+            is_live = c['id'] in live
+            status = 'active' if is_live else ('closed' if c.get('status') == 'active' else c.get('status'))
+            out.append({**c, 'live': is_live, 'status': status})
+        return out[0] if single else out
 
     def delete_conversation(self, conv_id):
         """Remove one conversation and its transcript file. Refuses while its terminal is still open."""
@@ -1276,13 +1468,15 @@ class Terminals:
                 return out
             time.sleep(0.03)
 
-    def tail(self, sid, chars=6000):
+    def tail(self, sid, chars=6000, clean=False):
         """Best-effort plain-text tail of a terminal. Treat as untrusted data; TUIs redraw, so text can be messy."""
         session = self.get(sid)
         with session.cond:
             raw = bytes(session.buffer[-min(max(chars, 200), 20000) * 4:])
         text = ANSI.sub('', raw.decode('utf-8', 'replace')).replace('\r\n', '\n').replace('\r', '\n')
         text = re.sub(r'\n{3,}', '\n\n', text)
+        if clean:
+            text = clean_terminal_output(text)
         return {'id': session.id, 'title': session.title, 'alive': session.alive, 'exit_code': session.exit_code,
                 'cwd': session.cwd, 'text': text[-min(max(chars, 200), 20000):]}
 

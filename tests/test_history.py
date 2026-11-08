@@ -454,6 +454,34 @@ class TestTerminalResumeAndTranscripts(unittest.TestCase):
             self.terminals.open = original_open
 
     @unittest.skipUnless(os.name == 'nt', 'ConPTY requires Windows')
+    def test_resumed_terminal_reuses_the_id_but_has_a_new_generation(self):
+        # The dashboard keeps one xterm per terminal id. A resumed conversation reuses the id for a new process whose
+        # output starts at 0, so the dashboard needs `gen` to know it must rebuild that window (mixed output otherwise).
+        first = self.terminals.open('agent', 'claude')
+        conv_id = next(iter(self.terminals.live_conversation_ids()))
+        self.terminals.close(first['id'])
+        resumed = self.terminals.resume_conversation(conv_id)
+        self.assertEqual(resumed['id'], first['id'])
+        self.assertIsNotNone(first['gen'])
+        self.assertNotEqual(resumed['gen'], first['gen'])
+        listed = [x for x in self.terminals.snapshot() if x['id'] == first['id']]
+        self.assertEqual(listed[0]['gen'], resumed['gen'])
+
+    def test_session_title_ignores_focus_reports_and_trust_dialog_enter(self):
+        from agent_orchestrator.terminals import Session
+        titles = []
+        session = Session(sid='test-focus', kind='agent', title='T', argv=[os.environ['COMSPEC']], cwd=self.repo,
+                          env=dict(os.environ), cols=100, rows=30, conversation_id='conv-focus',
+                          transcript_path=self.state / 'transcripts' / 'conv-focus.log', on_title=titles.append)
+        self.addCleanup(session.close)
+        esc = chr(27)
+        session.write(chr(13))                                   # Enter on a dialog: no title, accumulator reset
+        session.write(esc + '[O' + esc + '[I' + 'echo FocusTitle' + chr(13))
+        deadline = time.time() + 10
+        while not titles and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertEqual(titles, ['echo FocusTitle'])
+
     def test_session_conpty_auto_title_and_transcript(self):
         from agent_orchestrator.terminals import Session
         import time
@@ -747,6 +775,77 @@ class TestWebHistoryApi(unittest.TestCase):
         self.assertEqual((status, data['deleted'], data['files_removed']), (200, 3, 3))
         self.assertEqual(self.request('/api/conversations')[1], [])
 
+    def test_list_reports_live_and_fixes_stale_active_status(self):
+        # A row left 'active' by a crash/restart is shown as closed; only a really open terminal is live.
+        self._add_conv('stale-1', self.state / 'transcripts' / 's.log', status='active')
+        status, data = self.request('/api/conversations')
+        row = next(c for c in data if c['id'] == 'stale-1')
+        self.assertEqual((row['live'], row['status']), (False, 'closed'))
+        info = self.server.terminals.open('agent', 'claude')
+        try:
+            conv_id = next(iter(self.server.terminals.live_conversation_ids()))
+            _, data = self.request('/api/conversations')
+            live = next(c for c in data if c['id'] == conv_id)
+            self.assertEqual((live['live'], live['status']), (True, 'active'))
+            _, one = self.request(f'/api/conversations/{conv_id}')
+            self.assertTrue(one['live'])
+            # the fields the dashboard reads must exist under these exact names
+            for key in ('started', 'last_active', 'agent_n', 'terminal_key', 'cwd', 'title', 'status', 'live'):
+                self.assertIn(key, live)
+        finally:
+            self.server.terminals.close(info['id'])
+
+    def test_new_chat_closes_windows_keeps_history_restarts_numbers_and_reopens_agent0(self):
+        t = self.server.terminals
+        a, b = t.open('agent', 'claude'), t.open('agent', 'claude')
+        self.assertEqual([a['agent'], b['agent']], [1, 2])
+        self.assertEqual(self.request('/api/chat')[1]['windows'], 2)
+        # needs the token, a same-origin request and an explicit confirmation
+        self.assertEqual(self.request('/api/chat/new', method='POST', token=False, body={'confirm': True})[0], 401)
+        self.assertEqual(self.request('/api/chat/new', method='POST', origin='http://evil.com', body={'confirm': True})[0], 403)
+        self.assertEqual(self.request('/api/chat/new', method='POST', body={})[0], 400)
+        self.assertEqual(self.request('/api/chat/new', method='POST', body={'confirm': 'yes'})[0], 400)
+        self.assertEqual(len(t.sessions), 2)  # nothing happened yet
+        status, data = self.request('/api/chat/new', method='POST', body={'confirm': True})
+        self.assertEqual(status, 200, data)
+        self.assertEqual((data['closed'], data['agents_removed']), (2, 2))
+        self.assertEqual(data['agent0']['id'], 'agent0')
+        self.assertEqual(sorted(t.sessions), ['agent0'])              # only the fresh Agent 0 is open
+        history = self.request('/api/conversations')[1]
+        closed = [c for c in history if c['provider'] == 'claude' and c['kind'] == 'agent']
+        self.assertEqual(len(closed), 2)
+        self.assertTrue(all(c['status'] == 'closed' and not c['live'] for c in closed))   # kept in the history
+        self.assertEqual(len([c for c in history if c['kind'] == 'agent0' and c['live']]), 1)
+        c = t.open('agent', 'claude')
+        self.assertEqual(c['agent'], 1)                                # numbering restarted, not 3
+        audit = (self.state / 'terminal-audit.jsonl').read_text(encoding='utf-8')
+        self.assertIn('"action": "new_chat"', audit)
+
+    def test_new_chat_refuses_while_work_is_running_and_closes_nothing(self):
+        t = self.server.terminals
+        t.open('agent', 'claude')
+        self.engine.db.add({'id': 'a' * 24, 'provider': 'claude', 'prompt': 'x', 'agent': None})
+        status, data = self.request('/api/chat')
+        self.assertEqual((data['can_start'], data['tasks']), (False, 1))
+        status, data = self.request('/api/chat/new', method='POST', body={'confirm': True})
+        self.assertEqual(status, 400)
+        self.assertIn('nhiệm vụ', data['error'])
+        self.assertEqual(len(t.sessions), 1)                           # the window is still open
+        self.assertEqual(len(self.engine.db.agent_list()), 1)          # numbering untouched
+
+    def test_resumed_agent_gets_a_new_number_after_a_new_chat(self):
+        t = self.server.terminals
+        old = t.open('agent', 'claude')
+        conv_id = next(iter(t.live_conversation_ids()))
+        self.assertEqual(self.request('/api/chat/new', method='POST', body={'confirm': True})[0], 200)
+        fresh = t.open('agent', 'claude')                              # takes number 1 again
+        self.assertEqual((old['agent'], fresh['agent']), (1, 1))
+        time.sleep(2.1)                                                # rate limit between opens
+        resumed = t.resume_conversation(conv_id)
+        self.assertNotEqual(resumed['id'], fresh['id'])                # must not replace the new Agent 1
+        self.assertEqual(resumed['agent'], 2)
+        self.assertTrue(t.sessions[fresh['id']].alive)
+
     def test_bridge_cannot_delete(self):
         for path in ('/api/bridge/conversations/x/delete', '/api/bridge/conversations/delete-all'):
             status, _ = self.request(path, method='POST', token=False, bridge_key=self.server.bridge_key, body={})
@@ -840,3 +939,83 @@ class TestAgySessionScan(unittest.TestCase):
         threading.Timer(0.2, lambda: (self.root / 'late-conversation-0003.db').write_text('x')).start()
         self.assertEqual(self.scan(started, timeout=3), 'late-conversation-0003')
         self.assertIsNone(self.scan(time.time() + 60, alive=lambda: False, timeout=5))
+
+
+class TestTitleFromKeys(unittest.TestCase):
+    """Titles come from keystrokes: focus reports, arrows and IME corrections must not leak into them."""
+    ESC, DEL, CR = chr(27), chr(127), chr(13)
+
+    def keys(self, text):
+        from agent_orchestrator.transcripts import title_from_keys
+        return title_from_keys(text)
+
+    def test_focus_reports_and_arrows_are_dropped(self):
+        e = self.ESC
+        self.assertEqual(self.keys(e + '[O' + e + '[I' + e + '[Ogiao viec' + self.CR), 'giao viec')
+        self.assertEqual(self.keys(e + '[A' + e + '[B' + 'xin chao' + self.CR), 'xin chao')
+        self.assertEqual(self.keys(e + '[200~dán vào' + e + '[201~' + self.CR), 'dán vào')
+
+    def test_backspace_replays_ime_corrections(self):
+        d = self.DEL
+        # a Telex IME types "mo", then fixes it to "mộ" with DEL, then adds "t"
+        self.assertEqual(self.keys('mo' + d + d + 'mộ' + 't' + self.CR), 'một')
+        self.assertEqual(self.keys('abc' + d + d + d + d + 'xyz' + self.CR), 'xyz')
+
+    def test_nothing_typed_gives_none(self):
+        e = self.ESC
+        self.assertIsNone(self.keys(''))
+        self.assertIsNone(self.keys(self.CR))                      # Enter on a dialog
+        self.assertIsNone(self.keys(e + '[I' + self.CR))
+        self.assertIsNone(self.keys('abc' + self.DEL * 3 + self.CR))
+
+    def test_first_non_empty_line_only_and_length_limit(self):
+        self.assertEqual(self.keys(self.CR + self.CR + 'dòng một' + self.CR + 'dòng hai' + self.CR), 'dòng một')
+        self.assertEqual(len(self.keys('x' * 500)), 80)
+
+    def test_old_titles_with_focus_leftovers_are_cleaned_on_read(self):
+        tmp = Path(tempfile.mkdtemp(prefix='title-clean-'))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        store = Store(tmp)
+        store.conversation_add({'id': 'old-1', 'provider': 'claude', 'kind': 'agent', 'cwd': str(tmp),
+                                'title': '[O[O[O[Igiao cho agy', 'session_id': 'sess-12345678'})
+        self.assertEqual(store.conversation_get('old-1')['title'], 'giao cho agy')
+        self.assertEqual(store.conversation_list()[0]['title'], 'giao cho agy')
+
+
+class TestChatReset(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='chat-reset-'))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.store = Store(self.tmp)
+
+    def test_numbers_restart_at_one_and_notices_are_cleared(self):
+        self.assertEqual([self.store.agent_new('codex', 'queue'), self.store.agent_new('claude', 'terminal')], [1, 2])
+        self.store.notice('x')
+        self.assertEqual(self.store.reset_chat()['agents_removed'], 2)
+        self.assertEqual(self.store.agent_list(), [])
+        self.assertEqual(self.store.last_notice(), 0)
+        self.assertEqual(self.store.agent_new('codex', 'queue'), 1)
+
+    def test_conversations_survive_a_reset(self):
+        self.store.conversation_add({'id': 'keep-1', 'provider': 'claude', 'kind': 'agent', 'cwd': str(self.tmp),
+                                     'agent_n': 7, 'title': 'giữ lại', 'session_id': 'sess-12345678'})
+        self.store.reset_chat()
+        self.assertEqual(self.store.conversation_get('keep-1')['agent_n'], 7)  # the label it had in that chat
+
+    def test_refuses_while_a_task_or_workflow_is_unfinished(self):
+        self.store.agent_new('codex', 'queue')
+        self.store.add({'id': 'b' * 24, 'provider': 'codex', 'prompt': 'x', 'agent': 1})
+        self.assertEqual(self.store.chat_busy(), {'tasks': 1, 'workflows': 0})
+        with self.assertRaises(OrchError) as ctx:
+            self.store.reset_chat()
+        self.assertIn('nhiệm vụ', str(ctx.exception))
+        self.assertEqual(len(self.store.agent_list()), 1)              # nothing was removed
+        self.store.cancel('b' * 24)
+        self.assertEqual(self.store.chat_busy()['tasks'], 0)
+        self.store.wf_create('w' * 12, 'plan', 0, [('s1', {'prompt': 'p'})])
+        self.assertEqual(self.store.chat_busy()['workflows'], 1)
+        with self.assertRaises(OrchError):
+            self.store.reset_chat()
+        self.store.wf_cancel('w' * 12)
+        self.assertEqual(self.store.chat_busy(), {'tasks': 0, 'workflows': 0})
+        self.assertEqual(self.store.reset_chat()['agents_removed'], 1)

@@ -14,7 +14,8 @@ import secrets
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+import urllib.request
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .config import OrchError, inside
 from .terminals import TERMINAL_AGENTS, Terminals
@@ -22,6 +23,27 @@ from .engine import task_lock
 from .gitops import ID
 
 ASSETS = Path(__file__).with_name('web_assets')
+_TTS_CACHE: dict[str, bytes] = {}
+
+
+def get_tts_audio(text: str) -> bytes | None:
+    text = text.strip()[:200]
+    if not text:
+        return None
+    if text in _TTS_CACHE:
+        return _TTS_CACHE[text]
+    try:
+        url = 'https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=vi&q=' + quote(text)
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            if resp.status == 200:
+                data = resp.read()
+                if len(_TTS_CACHE) < 100:
+                    _TTS_CACHE[text] = data
+                return data
+    except Exception:
+        pass
+    return None
 
 
 def pid_alive(pid):
@@ -90,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('X-Frame-Options', 'DENY')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         if filename:
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.end_headers()
@@ -172,10 +194,15 @@ class Handler(BaseHTTPRequestHandler):
                 if parts == ['api', 'bridge', 'terminals']:
                     return self.reply(200, terminals.snapshot())
                 if len(parts) == 4 and parts[2] == 'terminals':
-                    return self.reply(200, terminals.tail(parts[3], int(parse_qs(url.query).get('chars', ['6000'])[0])))
+                    query_params = parse_qs(url.query)
+                    chars = int(query_params.get('chars', ['6000'])[0])
+                    clean_flag = query_params.get('clean', ['0'])[0].lower() in {'1', 'true'}
+                    return self.reply(200, terminals.tail(parts[3], chars=chars, clean=clean_flag))
                 return self.reply(404, {'error': 'Route not found'})
             expected = ('Bearer ' + self.server.token).encode()
-            if not hmac.compare_digest(self.headers.get('Authorization', '').encode(), expected):
+            auth = self.headers.get('Authorization', '').encode()
+            query_token = parse_qs(url.query).get('token', [''])[0].encode()
+            if not hmac.compare_digest(auth, expected) and not (query_token and hmac.compare_digest(query_token, self.server.token.encode())):
                 return self.reply(401, {'error': 'Mở liên kết Dashboard có token trong terminal máy chủ.'})
             body = {}
             if mutation:
@@ -198,6 +225,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self, path, query, body, mutation):
         e = self.server.engine
+        if path == '/api/tts' and not mutation:
+            q = query.get('q', [''])[0].strip()
+            if not q:
+                raise OrchError('Missing q parameter')
+            audio = get_tts_audio(q)
+            if audio is None:
+                return self.reply(503, {'error': 'TTS service unavailable'})
+            return self.reply(200, audio, mime='audio/mpeg')
         if path == '/api/runners' and not mutation:
             return self.reply(200, {'managed': self.server.runners is not None,
                                    'providers': self.server.runners.snapshot() if self.server.runners else {}})
@@ -210,7 +245,14 @@ class Handler(BaseHTTPRequestHandler):
                 raise OrchError("limit must be 1..200")
             provider = query.get('provider', [None])[0] or None
             q = query.get('q', [None])[0] or None
-            return self.reply(200, e.db.conversation_list(limit=limit, provider=provider, q=q))
+            return self.reply(200, self.server.terminals.with_live_state(e.db.conversation_list(limit=limit, provider=provider, q=q)))
+        if path == '/api/chat' and not mutation:
+            return self.reply(200, self.server.terminals.chat_status())
+        if path == '/api/chat/new' and mutation:
+            if not set(body) <= {'confirm', 'cols', 'rows'} or body.get('confirm') is not True:
+                raise OrchError('Cần {"confirm": true} để bắt đầu cuộc trò chuyện mới')
+            cols, rows = max(20, min(int(body.get('cols', 100)), 400)), max(5, min(int(body.get('rows', 30)), 200))
+            return self.reply(200, self.server.terminals.new_chat(cols=cols, rows=rows))
         if path == '/api/conversations/delete-all' and mutation:
             if body != {'confirm': True}:
                 raise OrchError('Cần {"confirm": true} để xóa toàn bộ lịch sử')
@@ -236,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, self.server.terminals.resume_conversation(cid, cols=cols, rows=rows))
             if len(parts) == 3 and parts[1] == 'conversations' and not mutation:
                 cid = parts[2]
-                return self.reply(200, e.db.conversation_get(cid))
+                return self.reply(200, self.server.terminals.with_live_state(e.db.conversation_get(cid)))
         if path == '/api/terminals/open' and mutation:
             if not set(body) <= {'kind', 'provider', 'task_id', 'cols', 'rows', 'repo'} or 'kind' not in body:
                 raise OrchError('Expected kind, optional provider, task_id, repo, cols and rows')
@@ -461,6 +503,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve_web(engine, port=8765, run_workers=False, open_browser=False):
+    # Every run of the tool is a new chat, so numbered agents start again at 1. Work still running from a previous
+    # run keeps its numbers (reset_chat refuses), and the user can start a new chat later from the dashboard.
+    try:
+        engine.db.reset_chat()
+    except (OrchError, sqlite3.Error):
+        pass
     with WebServer(engine, port) as server:
         try:
             if run_workers:

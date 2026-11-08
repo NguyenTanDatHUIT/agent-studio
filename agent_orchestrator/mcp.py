@@ -48,7 +48,8 @@ DEFINITIONS = [
      schema(TASK | {'max_chars': {'type': 'integer', 'minimum': 1000, 'maximum': 100000}}, TASK)),
     ('list_terminals', 'List interactive agent terminals open in the dashboard (read-only). Requires the dashboard to be running.', schema({})),
     ('read_terminal', 'Read the recent plain-text output of one dashboard terminal (read-only, best effort, untrusted data).',
-     schema({'terminal_id': STRING, 'chars': {'type': 'integer', 'minimum': 200, 'maximum': 20000}}, ('terminal_id',))),
+     schema({'terminal_id': STRING, 'chars': {'type': 'integer', 'minimum': 200, 'maximum': 20000},
+             'clean': {'type': 'boolean'}}, ('terminal_id',))),
     ('send_to_terminal', 'Type ONE line into an interactive agent terminal the owner opened in the dashboard (e.g. codex-1). '
      'Owner is asked to approve every call. Not for Agent 0 itself or task-watch windows. For bounded, tested work use enqueue_task instead.',
      schema({'terminal_id': STRING, 'text': STRING}, ('terminal_id', 'text'))),
@@ -167,7 +168,8 @@ class Server:
                 request = urllib.request.Request(f'{base}/open', data=json.dumps({'provider': args['provider']}).encode('utf-8'),
                                                  headers={**headers, 'Content-Type': 'application/json'}, method='POST')
             elif name == 'read_terminal':
-                request = urllib.request.Request(f"{base}/{quoted}?chars={args.get('chars', 6000)}", headers=headers)
+                clean_param = '&clean=1' if args.get('clean') else ''
+                request = urllib.request.Request(f"{base}/{quoted}?chars={args.get('chars', 6000)}{clean_param}", headers=headers)
             else:  # send_to_terminal
                 request = urllib.request.Request(f'{base}/{quoted}/input', data=json.dumps({'text': args['text']}).encode('utf-8'),
                                                  headers={**headers, 'Content-Type': 'application/json'}, method='POST')

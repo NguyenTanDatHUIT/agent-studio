@@ -6,11 +6,21 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from .config import OrchError
+from .transcripts import clean_title
 
 # A finished task can be continued (another round in the same worktree) from these states.
 CONTINUABLE = {'awaiting_review', 'changes_requested', 'failed', 'approved'}
 ACTIVE = ('queued', 'running')
 NOTIFY = {'awaiting_review', 'failed', 'cancelled'}  # outcomes that Agent 0 should hear about
+
+
+def chat_busy_message(tasks, flows):
+    parts = []
+    if tasks:
+        parts.append(f"{tasks} nhiệm vụ đang chạy hoặc chờ chạy")
+    if flows:
+        parts.append(f"{flows} workflow chưa xong")
+    return "Chưa thể bắt đầu cuộc trò chuyện mới: còn " + " và ".join(parts) + ". Chờ xong hoặc hủy chúng trước."
 
 
 def now():
@@ -274,6 +284,36 @@ class Store:
             rows = db.execute("SELECT id,agent,status,payload FROM tasks WHERE agent IS NOT NULL AND status IN ('queued','running')").fetchall()
         return [{'task_id': r['id'], 'agent': r['agent'], 'status': r['status'], 'round': json.loads(r['payload']).get('round', 1)} for r in rows]
 
+    # ---- one chat = one run of the tool ---------------------------------------------------------------
+    def chat_busy(self):
+        """What is still running: queued/running tasks and workflows with steps that have not finished."""
+        with self.connect() as db:
+            tasks = db.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('queued','running')").fetchone()[0]
+            flows = db.execute("SELECT COUNT(DISTINCT s.wf) FROM steps s JOIN workflows w ON w.id=s.wf "
+                               "WHERE w.cancelled=0 AND s.status IN ('waiting','blocked','released')").fetchone()[0]
+        return {'tasks': tasks, 'workflows': flows}
+
+    def reset_chat(self):
+        """Start a new chat: numbered agents begin again at 1 and Agent 0's notices are cleared.
+
+        Refuses while work is still running, because tasks and workflows refer to agent numbers.
+        Finished tasks keep the number they had; the history keeps each conversation's own label.
+        """
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            tasks = db.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('queued','running')").fetchone()[0]
+            flows = db.execute("SELECT COUNT(DISTINCT s.wf) FROM steps s JOIN workflows w ON w.id=s.wf "
+                               "WHERE w.cancelled=0 AND s.status IN ('waiting','blocked','released')").fetchone()[0]
+            if tasks or flows:
+                raise OrchError(chat_busy_message(tasks, flows))
+            removed = db.execute('DELETE FROM agents').rowcount
+            db.execute('DELETE FROM notices')
+            try:
+                db.execute("DELETE FROM sqlite_sequence WHERE name='agents'")
+            except sqlite3.OperationalError:
+                pass  # no AUTOINCREMENT bookkeeping yet: nothing to reset
+        return {'agents_removed': removed}
+
     # ---- conversation history --------------------------------------------------------------------------
     def conversation_add(self, conv):
         with self.connect() as db:
@@ -303,7 +343,13 @@ class Store:
             row = db.execute('SELECT * FROM conversations WHERE id=?', (cid,)).fetchone()
         if row is None:
             raise OrchError("Unknown conversation")
-        return dict(row)
+        return self._conv_row(row)
+
+    @staticmethod
+    def _conv_row(row):
+        data = dict(row)
+        data['title'] = clean_title(data.get('title'))
+        return data
 
     def conversation_delete(self, cid):
         with self.connect() as db:
@@ -326,4 +372,4 @@ class Store:
         sql = f'SELECT * FROM conversations{where} ORDER BY started DESC LIMIT ?'
         params.append(limit)
         with self.connect() as db:
-            return [dict(r) for r in db.execute(sql, params)]
+            return [self._conv_row(r) for r in db.execute(sql, params)]
