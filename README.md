@@ -24,7 +24,7 @@ production hay hệ thống cách ly mã độc. Đọc [SECURITY.md](SECURITY.m
 | Phần | Chức năng |
 |---|---|
 | `agent_orchestrator/cli.py` | CLI cấu hình, hàng đợi, runner, review, export, phục hồi |
-| `agent_orchestrator/mcp.py` | MCP stdio JSON-RPC, 10 tools (gồm list_terminals/read_terminal chỉ đọc), bắt tay 2025-03-26 |
+| `agent_orchestrator/mcp.py` | MCP stdio JSON-RPC, 12 tools (list_agents, list_terminals, read_terminal chỉ đọc; send_to_terminal có xác nhận), bắt tay 2025-03-26 |
 | `agent_orchestrator/store.py` | SQLite WAL, atomic claim, sự kiện trạng thái |
 | `agent_orchestrator/gitops.py` | Nhánh/worktree riêng, snapshot qua index tạm, binary patch |
 | `agent_orchestrator/process.py` | Không qua shell, timeout, cancel, log cap, Windows Job Object |

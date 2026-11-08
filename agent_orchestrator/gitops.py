@@ -32,15 +32,21 @@ def in_scope(path, scopes):
 
 
 class Git:
-    def __init__(self, config):
+    def __init__(self, config, repo=None):
         self.cfg = config
+        self.repo = Path(repo or config.repo).resolve()
         self.exe = shutil.which('git')
         if not self.exe:
             raise OrchError("Git not found")
         self.hooks = config.state / 'empty-hooks'
         self.hooks.mkdir(exist_ok=True)
-        if Path(self.text(config.repo, 'rev-parse', '--show-toplevel')).resolve() != config.repo:
-            raise OrchError("repo must be the Git repository root")
+        try:
+            top = Path(self.text(self.repo, 'rev-parse', '--show-toplevel')).resolve()
+            if top != self.repo and not inside(self.repo, top):
+                raise OrchError("repo must be inside a Git repository")
+            self.git_root = top
+        except OrchError:
+            self.git_root = self.repo
 
     def call(self, cwd, *args, data=None, env=None):
         argv = [self.exe, '--no-optional-locks', '-c', f'core.hooksPath={self.hooks}',
@@ -65,11 +71,11 @@ class Git:
         ref = self.cfg.data.get('base_ref', 'HEAD')
         if not isinstance(ref, str) or not re.fullmatch(r'[A-Za-z0-9_./-]+', ref) or ref.startswith('-') or '..' in ref:
             raise OrchError("Invalid base_ref")
-        return self.text(self.cfg.repo, 'rev-parse', '--verify', ref + '^{commit}')
+        return self.text(self.git_root, 'rev-parse', '--verify', ref + '^{commit}')
 
     def protected_refs(self):
         # Detection only; linked worktrees share Git metadata, not an isolation boundary.
-        return self.text(self.cfg.repo, 'for-each-ref', '--format=%(refname) %(objectname)',
+        return self.text(self.git_root, 'for-each-ref', '--format=%(refname) %(objectname)',
                          'refs/heads/main', 'refs/heads/master')
 
     def path(self, task_id):
@@ -84,11 +90,11 @@ class Git:
         path = self.path(task['id'])
         if path.exists():
             raise OrchError("Worktree already exists; no automatic reuse or deletion")
-        keys = self.text(self.cfg.repo, 'config', '--local', '--includes', '--name-only', '--list')
+        keys = self.text(self.git_root, 'config', '--local', '--includes', '--name-only', '--list')
         if any(key.lower().startswith('filter.') for key in keys.splitlines()):
             # Checkout itself can execute smudge/process filters, before the worker starts.
             raise OrchError("Repository-local Git filters unsupported; use a trusted plain-byte repository")
-        self.call(self.cfg.repo, 'worktree', 'add', '-b', 'orch/' + task['id'], str(path), task['base'])
+        self.call(self.git_root, 'worktree', 'add', '-b', 'orch/' + task['id'], str(path), task['base'])
         self.verify(task)
         return path
 
@@ -99,7 +105,7 @@ class Git:
         if Path(self.text(path, 'rev-parse', '--show-toplevel')).resolve() != path.resolve():
             raise OrchError("Worktree root changed")
         common = self.text(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
-        expected = self.text(self.cfg.repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+        expected = self.text(self.git_root, 'rev-parse', '--path-format=absolute', '--git-common-dir')
         if Path(common).resolve() != Path(expected).resolve():
             raise OrchError("Git common directory changed")
         if self.text(path, 'rev-parse', 'HEAD') != task['base'] or self.text(path, 'symbolic-ref', 'HEAD') != 'refs/heads/orch/' + task['id']:

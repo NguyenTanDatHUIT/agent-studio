@@ -25,7 +25,10 @@ def parser():
     doctor.add_argument('--probe', action='store_true', help='Check installed CLI versions and required flags')
     doctor.add_argument('--check-auth', action='store_true', help='Also query login status; never return credentials')
     add = sub.add_parser('enqueue')
-    add.add_argument('--provider', choices=['claude', 'codex'], required=True)
+    add.add_argument('--provider', choices=['claude', 'codex'], help='Start a NEW numbered agent of this provider')
+    add.add_argument('--agent', type=int, help='Give more work to this numbered agent (continues its task when it remembers context)')
+    add.add_argument('--remember', choices=['yes', 'no'], help='Override the agent remember-context setting for this task only')
+    add.add_argument('--repo', help='Name of an owner-configured repo (default: the main repo); new agents only')
     add.add_argument('--prompt-file', required=True)
     add.add_argument('--allow-path', action='append', required=True)
     add.add_argument('--test', action='append', required=True)
@@ -107,7 +110,8 @@ def main(argv=None):
                     from .readiness import probe
                     output['provider_checks'] = {p: probe(cfg, p, args.check_auth) for p in ('claude', 'codex')}
             elif args.action == 'enqueue':
-                output = engine.enqueue(args.provider, Path(args.prompt_file).read_text(encoding='utf-8-sig'), args.allow_path, args.test)
+                output = engine.enqueue(args.provider, Path(args.prompt_file).read_text(encoding='utf-8-sig'), args.allow_path, args.test,
+                                       agent=args.agent, remember=None if args.remember is None else args.remember == 'yes', repo=args.repo)
             elif args.action == 'list':
                 output = engine.db.list()
             elif args.action == 'worker':

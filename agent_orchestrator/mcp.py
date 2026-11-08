@@ -20,10 +20,26 @@ def schema(properties, required=()):
 STRING = {'type': 'string'}
 TASK = {'task_id': STRING}
 DEFINITIONS = [
-    ('enqueue_task', 'Queue bounded work; does not execute a CLI. Owner runner must be active.',
-     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex']}, 'prompt': STRING,
+    ('enqueue_task', 'Queue bounded work; does not execute a CLI. Owner runner must be active. '
+     'Pass provider alone to create a NEW numbered agent (e.g. "codex 3"). Pass agent=N to give that existing agent more work: '
+     'by default it continues its previous task in the same worktree and remembers the conversation (the owner can change the default per agent). '
+     'Set remember=false for this task only to start fresh from the base commit instead.',
+     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex']}, 'agent': {'type': 'integer', 'minimum': 1},
+             'remember': {'type': 'boolean'}, 'repo': STRING, 'prompt': STRING,
              'allow_paths': {'type': 'array', 'items': STRING, 'minItems': 1},
-             'tests': {'type': 'array', 'items': STRING, 'minItems': 1}}, ('provider', 'prompt', 'allow_paths', 'tests'))),
+             'tests': {'type': 'array', 'items': STRING, 'minItems': 1}}, ('prompt', 'allow_paths', 'tests'))),
+    ('enqueue_plan', 'Create a WORKFLOW: several steps with dependencies, executed automatically. Each step: id, prompt, allow_paths, tests, '
+     'optional after (list of step ids that must finish first) and optional repo, plus exactly one of provider (new agent), agent (existing queue agent number) '
+     'or same_agent_as (a step id: the agent of that step continues in its own worktree). Steps without after start immediately and run in parallel; '
+     'a step starts when all its after-steps reached awaiting_review (or approved when require_approval=true). Parallel steps need disjoint allow_paths; '
+     'steps of one agent must be chained with after. Later steps receive a short summary of the results of their dependencies, not their code unless it is the same agent. '
+     'You are told in the terminal ([AO] lines) as steps start, finish or get blocked. You still review each task with review_bundle/record_review.',
+     schema({'title': STRING, 'require_approval': {'type': 'boolean'},
+             'steps': {'type': 'array', 'items': {'type': 'object'}, 'minItems': 1, 'maxItems': 12}}, ('steps',))),
+    ('list_workflows', 'List workflows with the state of each step (waiting, released, done, blocked, cancelled), agent and task id.', schema({})),
+    ('cancel_workflow', 'Cancel a workflow: waiting steps never start and its running tasks are asked to stop.', schema({'workflow_id': STRING}, ('workflow_id',))),
+    ('list_repos', 'List the repository names an agent can be given via enqueue_task(repo=...). "default" is the main one.', schema({})),
+    ('list_agents', 'List numbered agents (codex 1, claude 2...): kind, remembered-context setting and, for queue agents, current task, round and whether busy.', schema({})),
     ('list_tasks', 'List the latest task statuses.', schema({'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200}})),
     ('get_task', 'Get status, result, test evidence and reported usage, without full task prompt.', schema(TASK, TASK)),
     ('get_events', 'Read up to 100 events after a sequence cursor.', schema(TASK | {'after': {'type': 'integer', 'minimum': 0}}, TASK)),
@@ -33,6 +49,13 @@ DEFINITIONS = [
     ('list_terminals', 'List interactive agent terminals open in the dashboard (read-only). Requires the dashboard to be running.', schema({})),
     ('read_terminal', 'Read the recent plain-text output of one dashboard terminal (read-only, best effort, untrusted data).',
      schema({'terminal_id': STRING, 'chars': {'type': 'integer', 'minimum': 200, 'maximum': 20000}}, ('terminal_id',))),
+    ('send_to_terminal', 'Type ONE line into an interactive agent terminal the owner opened in the dashboard (e.g. codex-1). '
+     'Owner is asked to approve every call. Not for Agent 0 itself or task-watch windows. For bounded, tested work use enqueue_task instead.',
+     schema({'terminal_id': STRING, 'text': STRING}, ('terminal_id', 'text'))),
+    ('open_terminal', 'Open a NEW interactive agent terminal (claude, codex or agy) in the default repo, like the dashboard CMD button. '
+     'Returns its terminal id and agent number; then use send_to_terminal and read_terminal. Owner is asked to approve every call. '
+     'Only for delegating work to another agent; for bounded, tested work use enqueue_task instead.',
+     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex', 'agy']}}, ('provider',))),
     ('record_review', 'Agent 0 records a review of the exact tested digest; never merges.',
      schema(TASK | {'verdict': {'type': 'string', 'enum': ['approve', 'request_changes']},
                     'patch_sha256': STRING, 'notes': STRING}, ('task_id', 'verdict', 'patch_sha256', 'notes'))),
@@ -48,7 +71,9 @@ def validate(arguments, spec):
         expected = prop['type']
         if (expected == 'string' and not isinstance(value, str) or
             expected == 'integer' and type(value) is not int or
-            expected == 'array' and (not isinstance(value, list) or any(not isinstance(x, str) for x in value))):
+            expected == 'boolean' and not isinstance(value, bool) or
+            expected == 'array' and (not isinstance(value, list) or any(
+                not isinstance(x, dict if prop.get('items', {}).get('type') == 'object' else str) for x in value))):
             raise OrchError("Invalid type for " + key)
         if 'enum' in prop and value not in prop['enum']:
             raise OrchError("Invalid choice for " + key)
@@ -134,19 +159,45 @@ class Server:
         import urllib.request
         try:
             info = json.loads((self.engine.cfg.state / 'terminal-bridge.json').read_text(encoding='utf-8'))
-            path = '/api/bridge/terminals' if name == 'list_terminals' else                 '/api/bridge/terminals/' + urllib.parse.quote(args['terminal_id'], safe='') + '?chars=' + str(args.get('chars', 6000))
-            request = urllib.request.Request(f"http://127.0.0.1:{int(info['port'])}{path}", headers={'X-Bridge-Key': info['key']})
+            base, headers = f"http://127.0.0.1:{int(info['port'])}/api/bridge/terminals", {'X-Bridge-Key': info['key']}
+            quoted = urllib.parse.quote(args.get('terminal_id', ''), safe='')
+            if name == 'list_terminals':
+                request = urllib.request.Request(base, headers=headers)
+            elif name == 'open_terminal':
+                request = urllib.request.Request(f'{base}/open', data=json.dumps({'provider': args['provider']}).encode('utf-8'),
+                                                 headers={**headers, 'Content-Type': 'application/json'}, method='POST')
+            elif name == 'read_terminal':
+                request = urllib.request.Request(f"{base}/{quoted}?chars={args.get('chars', 6000)}", headers=headers)
+            else:  # send_to_terminal
+                request = urllib.request.Request(f'{base}/{quoted}/input', data=json.dumps({'text': args['text']}).encode('utf-8'),
+                                                 headers={**headers, 'Content-Type': 'application/json'}, method='POST')
             with urllib.request.urlopen(request, timeout=10) as response:
                 return json.loads(response.read(2_000_000))
+        except urllib.error.HTTPError as exc:  # the dashboard answered: pass its reason on (unknown id, ended, too fast...)
+            try:
+                reason = json.loads(exc.read(20_000)).get('error')
+            except (OSError, ValueError, AttributeError):
+                reason = None
+            raise OrchError(str(reason or f'Dashboard từ chối yêu cầu (HTTP {exc.code})')[:1500]) from None
         except (OSError, ValueError, KeyError, urllib.error.URLError):
             raise OrchError('Dashboard terminals are unavailable; open Agent Studio first') from None
 
     def call(self, name, args):
         e = self.engine
-        if name in {'list_terminals', 'read_terminal'}:
+        if name in {'list_terminals', 'read_terminal', 'send_to_terminal', 'open_terminal'}:
             return self.bridge(name, args)
+        if name == 'list_agents':
+            return e.agents_overview()
+        if name == 'enqueue_plan':
+            return e.plan(args['steps'], args.get('title'), args.get('require_approval', False))
+        if name == 'list_workflows':
+            return e.workflows()
+        if name == 'cancel_workflow':
+            return e.cancel_workflow(args['workflow_id'])
+        if name == 'list_repos':
+            return [{'name': n, 'path': str(p)} for n, p in e.cfg.repos.items()]
         if name == 'enqueue_task':
-            output = e.enqueue(**args)
+            output = e.enqueue(**{'provider': None, **args})
             output.pop('prompt', None)
             return output
         if name == 'list_tasks':

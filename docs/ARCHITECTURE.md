@@ -61,7 +61,8 @@ MCP tools:
 
 | Tool | Vai trò |
 |---|---|
-| enqueue_task | Queue task có scope và tên test profile |
+| enqueue_task | Queue task có scope và tên test profile. `provider` tạo agent mới; `agent=N` giao việc tiếp cho agent đó; `remember` ghi đè nhớ ngữ cảnh cho lần đó |
+| list_agents | Agent đánh số: loại, nhớ ngữ cảnh, task hiện tại, vòng, bận/rảnh |
 | list_tasks | Tối đa 200 task gần đây |
 | get_task | Trạng thái và kết quả, không lặp full prompt |
 | get_events | 100 event/trang, dùng seq làm after cursor |
@@ -73,3 +74,16 @@ MCP tools:
 CLI thêm init, doctor, worker và abandon. Config không sửa qua tool. SQLite chứa
 full task prompt và raw model summary; cần bảo vệ quyền truy cập, dung lượng và
 retention theo yêu cầu dự án. Không có encryption hoặc log rotation toàn state.
+
+## Agent đánh số và làm tiếp (nhớ ngữ cảnh)
+
+Bảng `agents` (SQLite, `AUTOINCREMENT`) cấp số `codex 1`, `claude 2`... chung cho terminal tương tác và agent hàng đợi,
+an toàn giữa tiến trình web và MCP, không dùng lại số. Mỗi agent hàng đợi trỏ tới một task "hiện tại"
+(`thread_task`) và lưu `session_id` của CLI.
+
+`enqueue_task(agent=N)` với nhớ ngữ cảnh bật (mặc định) chuyển task hiện tại từ trạng thái đã xong
+(`awaiting_review`, `changes_requested`, `failed`, `approved`) về `queued` ở "vòng" kế tiếp. Cùng task ID, nhánh và worktree:
+Claude gắn phiên theo thư mục làm việc nên chỉ cùng worktree mới làm tiếp được phiên cũ, và digest vẫn tính so với commit gốc.
+Runner chạy `claude --resume <id>` hoặc `codex exec resume <id>`; nếu thất bại thì chạy lại phiên mới trong cùng worktree
+kèm tóm tắt các vòng trước (`resume_failed`). Log vòng cũ được giữ ở `worker-r1`, `test-<tên>-r1`. Tắt nhớ ngữ cảnh thì task
+mới bắt đầu từ commit gốc với phiên ephemeral như trước.

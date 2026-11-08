@@ -75,3 +75,41 @@ Dashboard có thể mở phiên terminal tương tác (Agent 0 hoặc worker tro
 Phiên chạy bằng quyền tài khoản Windows của bạn; ai có token dashboard có thể gõ vào phiên
 đó. Token chỉ có trên loopback và đổi mỗi lần chạy. Không chia sẻ liên kết Dashboard.
 Terminal tương tác không dùng chế độ restricted của runner.
+
+### Agent 0 gõ vào terminal (`send_to_terminal`)
+
+Agent 0 có thể gõ **một dòng** vào một terminal agent tương tác do dashboard mở. Đây là kênh prompt
+injection tiềm năng giữa các agent, nên có các rào chắn sau:
+
+- Công cụ không nằm trong danh sách tự duyệt của Agent 0: Claude Code hỏi bạn xác nhận **mỗi lần gọi**.
+- Cầu nối chỉ nhận POST `/api/bridge/terminals/<id>/input` kèm khóa riêng của phiên dashboard; mọi
+  đường ghi khác trên cầu nối bị từ chối. Khóa đổi mỗi lần chạy và không lưu trong config.
+- Chỉ gửi được vào terminal `agent` còn sống; từ chối Agent 0 và cửa sổ theo dõi task.
+- Văn bản bị bỏ mọi ký tự điều khiển (kể cả ESC) và gộp về một dòng, tối đa 4000 ký tự,
+  tối thiểu 1 giây giữa hai lần gửi vào cùng terminal.
+- Mỗi lần gửi được ghi vào `terminal-audit.jsonl` trong state (thời gian, terminal, độ dài, SHA-256, 200
+  ký tự đầu).
+- Nội dung đọc lại từ terminal vẫn là dữ liệu không đáng tin; Agent 0 không được làm theo lệnh trong đó.
+
+### Cửa sổ theo dõi task
+
+Mỗi agent hàng đợi có việc `queued`/`running` tự có một cửa sổ **chỉ đọc** trong dashboard, hiển thị sự kiện và log. Mọi
+văn bản từ log được loại ký tự điều khiển trước khi in, để log của worker không thể chèn escape sequence
+vào terminal của bạn. Cửa sổ không nhận phím gõ ở cả trình duyệt lẫn API.
+
+### Nhớ ngữ cảnh giữa các task
+
+Mặc định (tắt được cho từng agent, hoặc mặc định chung ở biểu tượng cài đặt của Agent 0), worker lưu phiên model để
+agent làm tiếp. Đánh đổi cần biết:
+
+- Bỏ `--ephemeral` (Codex) và `--no-session-persistence` (Claude) cho các agent đang nhớ: lịch sử hội thoại, gồm lời nhắc và
+  nội dung file đã đọc, do chính CLI lưu trên đĩa (thư mục dữ liệu của Claude/Codex trong hồ sơ người dùng) với quyền tài khoản
+  Windows của bạn. Tắt nhớ ngữ cảnh để quay lại phiên ephemeral hoàn toàn.
+- Chính sách quyền của worker không đổi khi làm tiếp (Claude `--restricted`, công cụ giới hạn; Codex workspace-write, tắt mạng,
+  `approval_policy=never`). `codex exec resume` không có `--sandbox` nên chính sách được truyền bằng `-c sandbox_mode`; nếu CLI
+  bỏ qua, mặc định của nó là chỉ đọc nên thất bại an toàn ("no changes"), không mở rộng quyền. Chưa kiểm chứng với tài khoản thật.
+- Session id lấy từ đầu ra của CLI và được kiểm tra bằng regex trước khi đưa vào dòng lệnh.
+- Làm tiếp dùng lại đúng worktree cũ, nên mỗi vòng cần test và review lại với digest mới; bằng chứng cũ mất hiệu lực.
+  `protected_refs` được làm mới đầu mỗi vòng (bạn có thể đã tích hợp vào main giữa hai vòng).
+- Phạm vi chỉnh sửa vẫn được kiểm tra trên toàn bộ thay đổi so với commit gốc: `allow_paths` của vòng sau phải bao gồm các file
+  đã sửa ở vòng trước.

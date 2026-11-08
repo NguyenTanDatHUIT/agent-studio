@@ -5,12 +5,16 @@ import base64
 import hmac
 import json
 import os
+import re
+import shutil
+import subprocess
+import sys
 import time
 import secrets
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .config import OrchError, inside
 from .terminals import TERMINAL_AGENTS, Terminals
@@ -98,6 +102,32 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.handle_request(True)
 
+    def read_json(self):
+        """Parse the JSON object body. Replies and returns None for transport-level problems."""
+        if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
+            self.reply(400, {'error': 'JSON body required'})
+            return None
+        length = int(self.headers.get('Content-Length', '0'))
+        if not 0 < length <= 200_000:
+            to_drain = min(length, 1_000_000)
+            try:
+                while to_drain > 0:
+                    chunk = self.rfile.read(min(to_drain, 65536))
+                    if not chunk:
+                        break
+                    to_drain -= len(chunk)
+            except Exception:
+                pass
+            self.reply(413, {'error': 'Request body limit: 200 KB'})
+            return None
+        raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise OrchError('Incomplete request body')
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            raise OrchError('JSON object required')
+        return body
+
     def handle_request(self, mutation):
         self.close_connection = True
         try:
@@ -118,9 +148,27 @@ class Handler(BaseHTTPRequestHandler):
                 name, mime = static[url.path]
                 return self.reply(200, (ASSETS / name).read_bytes(), mime)
             if url.path.startswith('/api/bridge/'):
-                if mutation or not hmac.compare_digest(self.headers.get('X-Bridge-Key', '').encode(), self.server.bridge_key.encode()):
+                if not hmac.compare_digest(self.headers.get('X-Bridge-Key', '').encode(), self.server.bridge_key.encode()):
                     return self.reply(401, {'error': 'Bridge key required'})
-                terminals, parts = self.server.terminals, url.path.strip('/').split('/')
+                terminals, parts = self.server.terminals, [unquote(x) for x in url.path.strip('/').split('/')]
+                if mutation:
+                    # The only writes the bridge allows: Agent 0 opening an interactive agent terminal, and typing one line into one.
+                    # Agent 0's own tool list does not auto-approve them, so Claude Code asks the owner every time.
+                    if parts == ['api', 'bridge', 'terminals', 'open']:
+                        body = self.read_json()
+                        if body is None:
+                            return
+                        if set(body) != {'provider'}:
+                            raise OrchError('Expected only provider')
+                        return self.reply(200, terminals.open_agent(body['provider']))
+                    if len(parts) == 5 and parts[2] == 'terminals' and parts[4] == 'input':
+                        body = self.read_json()
+                        if body is None:
+                            return
+                        if set(body) != {'text'}:
+                            raise OrchError('Expected only text')
+                        return self.reply(200, terminals.send(parts[3], body['text']))
+                    return self.reply(401, {'error': 'Bridge is read-only except opening a terminal and terminal input'})
                 if parts == ['api', 'bridge', 'terminals']:
                     return self.reply(200, terminals.snapshot())
                 if len(parts) == 4 and parts[2] == 'terminals':
@@ -133,17 +181,9 @@ class Handler(BaseHTTPRequestHandler):
             if mutation:
                 if origin != self.server.origin:
                     return self.reply(403, {'error': 'Same-origin POST required'})
-                if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
-                    return self.reply(400, {'error': 'JSON body required'})
-                length = int(self.headers.get('Content-Length', '0'))
-                if not 0 < length <= 200_000:
-                    return self.reply(413, {'error': 'Request body limit: 200 KB'})
-                raw = self.rfile.read(length)
-                if len(raw) != length:
-                    raise OrchError('Incomplete request body')
-                body = json.loads(raw)
-                if not isinstance(body, dict):
-                    raise OrchError('JSON object required')
+                body = self.read_json()
+                if body is None:
+                    return
             self.route(url.path, parse_qs(url.query), body, mutation)
         except (OrchError, ValueError, TypeError, KeyError) as exc:
             self.reply(400, {'error': str(exc)[:2000]})
@@ -164,9 +204,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/terminals' and not mutation:
             return self.reply(200, self.server.terminals.snapshot())
         if path == '/api/terminals/open' and mutation:
-            if not set(body) <= {'kind', 'provider', 'task_id', 'cols', 'rows'} or 'kind' not in body:
-                raise OrchError('Expected kind, optional provider, task_id, cols and rows')
-            return self.reply(200, self.server.terminals.open(body['kind'], body.get('provider'), body.get('task_id'), body.get('cols', 100), body.get('rows', 30)))
+            if not set(body) <= {'kind', 'provider', 'task_id', 'cols', 'rows', 'repo'} or 'kind' not in body:
+                raise OrchError('Expected kind, optional provider, task_id, repo, cols and rows')
+            return self.reply(200, self.server.terminals.open(body['kind'], body.get('provider'), body.get('task_id'), body.get('cols', 100),
+                                                              body.get('rows', 30), repo=body.get('repo')))
         if path == '/api/terminals/stream' and not mutation:
             cursors = {}
             for item in query.get('c', [''])[0].split(',')[:40]:
@@ -193,18 +234,141 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(404, {'error': 'Route or arguments not supported'})
         if path == '/api/agent0' and not mutation:
             return self.reply(200, agent0_status(e.cfg.state))
+        if path == '/api/browse/native' and mutation:
+            initial = str(body.get('initial') or e.cfg.repo or '').strip()
+            picker_script = (
+                "import tkinter as tk; from tkinter import filedialog; "
+                "root = tk.Tk(); root.withdraw(); root.attributes('-topmost', True); "
+                f"folder = filedialog.askdirectory(initialdir={json.dumps(initial)}, title='Chọn thư mục mã nguồn dự án'); "
+                "root.destroy(); print(folder)"
+            )
+            chosen = ""
+            try:
+                proc = subprocess.run(
+                    [sys.executable, '-c', picker_script],
+                    capture_output=True, text=True, timeout=120,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
+                if proc.returncode == 0:
+                    chosen = proc.stdout.strip()
+            except Exception:
+                pass
+            if not chosen and os.name == 'nt':
+                ps_cmd = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$f = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$f.Description = 'Chọn thư mục mã nguồn dự án'; "
+                    f"if ('{initial}' -and (Test-Path '{initial}')) {{ $f.SelectedPath = '{initial}' }}; "
+                    "$top = New-Object System.Windows.Forms.Form; $top.TopMost = $true; "
+                    "if ($f.ShowDialog($top) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }"
+                )
+                try:
+                    proc = subprocess.run(
+                        ['powershell', '-NoProfile', '-STA', '-Command', ps_cmd],
+                        capture_output=True, text=True, timeout=120,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    if proc.returncode == 0:
+                        chosen = proc.stdout.strip()
+                except Exception:
+                    pass
+            return self.reply(200, {'path': chosen, 'cancelled': not chosen})
+        if path == '/api/browse' and not mutation:
+            target = unquote(query.get('path', [''])[0]).strip()
+            if not target:
+                drives = [f"{d}:\\" for d in 'CDEFGHIJKLMNOPQRSTUVWXYZ' if os.path.exists(f"{d}:\\")]
+                return self.reply(200, {'current': '', 'parent': None, 'dirs': drives})
+            target_path = Path(target).resolve()
+            if not target_path.is_dir():
+                raise OrchError(f'Thư mục không tồn tại: {target}')
+            dirs = []
+            try:
+                for entry in os.scandir(target_path):
+                    if entry.is_dir(follow_symlinks=False) and not entry.name.startswith('.') and not entry.name.startswith('$'):
+                        dirs.append(entry.name)
+            except OSError as err:
+                raise OrchError(f'Không thể đọc thư mục: {err}')
+            parent = str(target_path.parent) if target_path.parent != target_path else None
+            return self.reply(200, {'current': str(target_path), 'parent': parent, 'dirs': sorted(dirs, key=str.lower)})
+        if path == '/api/repo':
+            if not mutation:
+                return self.reply(200, {'repo': str(e.cfg.repo), 'base_ref': e.cfg.data.get('base_ref', 'HEAD'), 'repos': list(e.cfg.repos)})
+            if not isinstance(body, dict) or not body.get('path'):
+                raise OrchError('Cần cung cấp path của thư mục')
+            raw = str(body['path']).strip()
+            p = Path(raw).resolve()
+            if not p.is_dir():
+                raise OrchError(f'Thư mục không tồn tại: {raw}')
+            e.cfg.repo = p
+            e.cfg.data['repo'] = str(p)
+            e.cfg.repos['default'] = p
+            e.gits = {}
+            if hasattr(self.server, 'terminals') and self.server.terminals:
+                self.server.terminals.cfg = e.cfg
+            return self.reply(200, {'ok': True, 'repo': str(p), 'name': p.name, 'base_ref': e.cfg.data.get('base_ref', 'HEAD')})
+        if path == '/api/repo/folders' and not mutation:
+            root = e.cfg.repo
+            ignored = {'.git', '.claude', '.codex', '.github', '.venv', '.runtime', '.local-run', '__pycache__', 'node_modules', 'bin', 'obj', 'dist', 'build'}
+            folders = []
+            try:
+                for base, dirnames, _ in os.walk(root):
+                    dirnames[:] = [d for d in dirnames if d.lower() not in ignored and not d.startswith('.')]
+                    rel = Path(base).relative_to(root).as_posix()
+                    if rel != '.':
+                        folders.append(rel)
+                    if len(rel.split('/')) >= 4:
+                        dirnames.clear()
+                    if len(folders) >= 200:
+                        break
+            except OSError:
+                pass
+            return self.reply(200, {'repo': str(root), 'folders': sorted(folders)})
         if path == '/api/config' and not mutation:
             return self.reply(200, {'repo': str(e.cfg.repo), 'base_ref': e.cfg.data.get('base_ref', 'HEAD'),
                                    'demo': e.cfg.data.get('demo') is True,
                                    'execution_enabled': e.cfg.data.get('acknowledge_local_execution') is True,
                                    'providers': {k: bool(v.get('command')) for k, v in e.cfg.data.get('providers', {}).items() if k in {'claude', 'codex'}},
                                    'terminal_agents': [k for k in TERMINAL_AGENTS if e.cfg.data.get('providers', {}).get(k, {}).get('command')],
+                                   'repos': list(e.cfg.repos),
                                    'tests': list(e.cfg.data.get('tests', {}))})
+        if path == '/api/workflows':
+            if not mutation:
+                return self.reply(200, e.workflows())
+            if not {'steps'} <= set(body) <= {'steps', 'title', 'require_approval'}:
+                raise OrchError('Expected steps (optional title, require_approval)')
+            return self.reply(201, e.plan(body['steps'], body.get('title'), body.get('require_approval', False)))
+        match = re.fullmatch(r'/api/workflows/([0-9a-f]{12})(/cancel)?', path)
+        if match:
+            if mutation and match[2] and not body:
+                return self.reply(200, e.cancel_workflow(match[1]))
+            if not mutation and not match[2]:
+                return self.reply(200, e.workflow(match[1]))
+            return self.reply(404, {'error': 'Route or arguments not supported'})
+        if path == '/api/agents' and not mutation:
+            return self.reply(200, e.agents_overview())
+        if path == '/api/settings':
+            if not mutation:
+                return self.reply(200, {'default_remember': e.default_remember(), 'notify_agent0': bool(e.db.setting('notify_agent0', True))})
+            if len(body) != 1 or set(body) - {'default_remember', 'notify_agent0'} or not all(isinstance(v, bool) for v in body.values()):
+                raise OrchError('Expected default_remember or notify_agent0 (true or false)')
+            for key, value in body.items():
+                e.db.set_setting(key, value)
+            return self.reply(200, {'default_remember': e.default_remember(), 'notify_agent0': bool(e.db.setting('notify_agent0', True))})
+        match = re.fullmatch(r'/api/agents/(\d{1,9})/settings', path)
+        if match and mutation:
+            # Whitelisted keys only; add new per-agent options here and in the dashboard's settingDefs list.
+            if set(body) != {'remember_context'} or not isinstance(body['remember_context'], bool):
+                raise OrchError('Expected only remember_context (true or false)')
+            if e.db.agent_get(int(match[1])) is None:
+                raise OrchError(f'Không có agent {match[1]}')
+            e.db.agent_setting(int(match[1]), 'remember_context', body['remember_context'])
+            return self.reply(200, {'agent': int(match[1]), 'remember_context': body['remember_context']})
         if path == '/api/tasks':
             if mutation:
-                if set(body) != {'provider', 'prompt', 'allow_paths', 'tests'}:
-                    raise OrchError('Expected provider, prompt, allow_paths and tests')
-                return self.reply(201, e.enqueue(**body))
+                if not {'prompt', 'allow_paths', 'tests'} <= set(body) <= {'provider', 'prompt', 'allow_paths', 'tests', 'agent', 'remember', 'repo'}:
+                    raise OrchError('Expected prompt, allow_paths, tests and provider or agent (optional remember)')
+                return self.reply(201, e.enqueue(body.get('provider'), body['prompt'], body['allow_paths'], body['tests'],
+                                                 agent=body.get('agent'), remember=body.get('remember'), repo=body.get('repo')))
             return self.reply(200, [e.db.get(row['id']) for row in e.db.list(limit=200)])
         if path == '/api/activity' and not mutation:
             with e.db.connect() as db:
@@ -233,7 +397,9 @@ class Handler(BaseHTTPRequestHandler):
             if action == 'logs':
                 stage = query.get('stage', ['worker'])[0]
                 stream = query.get('stream', ['stdout'])[0]
-                if stage not in {'worker'} | {'test-' + t for t in task['tests']} or stream not in {'stdout', 'stderr'}:
+                live = {'worker'} | {'test-' + t for t in task['tests']}
+                archived = re.fullmatch(r'(.+)-r\d{1,3}', stage)  # logs of earlier rounds: worker-r1, test-x-r1
+                if (stage not in live and not (archived and archived[1] in live)) or stream not in {'stdout', 'stderr'}:
                     raise OrchError('Invalid log selection')
                 root = e.cfg.state / 'runs' / task_id
                 file = root / stage / (stream + '.log')
@@ -267,6 +433,7 @@ def serve_web(engine, port=8765, run_workers=False, open_browser=False):
                 from .runners import Runners
                 server.runners = Runners(engine.cfg)
                 server.runners.start()
+            server.terminals.start_monitor(lambda: server.runners.snapshot() if server.runners else {})
             bridge = engine.cfg.state / 'terminal-bridge.json'
             bridge.write_text(json.dumps({'port': server.server_port, 'key': server.bridge_key, 'pid': os.getpid()}), encoding='utf-8')
             print(f'Dashboard: {server.origin}/#token={server.token}', flush=True)

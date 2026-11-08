@@ -122,3 +122,72 @@ yêu cầu bearer token và same-origin như các API khác. Terminal tương t�
 quyền mặc định của CLI (không có cờ restricted của runner), nên bạn là người chấp thuận
 từng thao tác. Yêu cầu Windows 10 1809+ (ConPTY). xterm.js 5.5.0 (MIT) được đóng gói trong
 `web_assets/vendor/`, không dùng CDN.
+
+## Cửa sổ theo dõi task và giao việc cho terminal
+
+**Giao việc xong thì terminal hiện ra.** Khi một agent có việc trong hàng đợi (từ Agent 0 qua MCP, từ web hoặc CLI),
+dashboard tự mở cửa sổ `Codex 1` trong tab **Cửa sổ CMD** và báo bằng thông báo. Cửa sổ
+hiển thị trực tiếp: hàng đợi, worker bắt đầu, log worker (Codex theo từng sự kiện; Claude chỉ trả kết quả
+một lần khi xong nên chỉ có nhịp "vẫn đang chạy"), từng test, rồi kết quả. Nếu 8 giây sau vẫn `queued`
+mà dashboard không thấy runner, cửa sổ cảnh báo. Cửa sổ này **chỉ đọc**: worker chạy nền có giới hạn
+(đúng cách engine xác minh kết quả), không phải phiên tương tác. Tối đa 12 cửa sổ; cửa sổ của agent đang rảnh được dọn tự động khi cần chỗ.
+
+**ID terminal.** Terminal mở bằng nút CMD và agent hàng đợi có ID `codex-1`, `claude-2`, `agy-3` (số chung, hiện trên thẻ). Agent 0 nhận
+`codex-1`, `codex#1`, `Codex #1` đều như nhau. Cửa sổ cmd bạn tự mở bên ngoài dashboard không có ID.
+
+**Agent 0 gõ vào terminal có sẵn.** `send_to_terminal(terminal_id, text)`, mỗi lần được hỏi xác nhận, có
+audit và giới hạn (xem `SECURITY.md`). Việc cần test và review vẫn nên giao bằng `enqueue_task`.
+
+**Trang Luồng tự động** chỉ dùng dữ liệu thật: trạng thái kết nối của Agent 0 và tool gần nhất, runner
+từng provider, các terminal đang mở (nút Mở nhảy tới cửa sổ), sự kiện gần nhất, profile test trong config.
+Khi chưa có gì thì hiện đúng "chưa có", không còn chữ mẫu.
+
+## Agent đánh số, làm tiếp và cài đặt cửa sổ
+
+**Số agent.** Mỗi agent có một số tăng dần chung (`codex 1`, `claude 2`...), không dùng lại và giữ nguyên khi khởi động lại.
+Terminal bấm "CMD" và agent hàng đợi do Agent 0 tạo dùng chung bộ đếm. Gõ `codex 1`, `codex-1`, `codex#1` hay chỉ `1` đều được.
+
+**Cửa sổ của agent hàng đợi.** Mỗi agent có đúng một cửa sổ chỉ đọc (`Codex 1`), tự mở khi có việc, và nhận việc tiếp vào chính cửa sổ đó
+("vòng 2", "vòng 3"...). Cửa sổ không tự đóng khi task xong mà chuyển sang "Sẵn sàng". Đóng cửa sổ thì nó chỉ mở lại khi agent bắt đầu vòng mới.
+
+**Làm tiếp.** Agent 0 nói "codex 1 làm tiếp ...", hoặc bạn bấm "Giao việc tiếp cho codex 1" trong tab Nhiệm vụ. Mặc định agent nhớ ngữ cảnh:
+làm tiếp trong cùng worktree và cùng phiên model (có dự phòng phiên mới kèm tóm tắt). Kết quả và digest tính lại, cần review lại.
+
+**Biểu tượng cài đặt (bánh răng) trên thanh tiêu đề mỗi cửa sổ.**
+- Cửa sổ agent hàng đợi: tick "Nhớ ngữ cảnh sau mỗi task". Tắt thì mỗi task bắt đầu mới từ commit gốc. Agent 0 có thể ghi đè từng lần bằng `remember`.
+- Cửa sổ Agent 0: tick "Agent mới mặc định nhớ ngữ cảnh" (mặc định bật).
+- Terminal tương tác không có tùy chọn: nó là tiến trình sống nên luôn giữ ngữ cảnh.
+Danh sách tùy chọn nằm trong `settingDefs` của `app.js` (thêm một dòng ở đó và một khóa trong danh sách cho phép ở `web.py`).
+
+**Hàng × cột.** Ngoài bốn nút 1×2, 2×2, 2×3, 3×3 có một ô nhập cùng kích thước: gõ `1x2`, `1 x 2` hoặc `3×2` rồi Enter hoặc rời ô.
+Mỗi số từ 1 đến 6. Nhập sai thì ô đổi viền đỏ, hiện thông báo và giữ bố cục cũ. Bố cục được nhớ khi tải lại trang.
+
+## Giao diện: toàn chiều ngang, sidebar đóng được, phong cách Claude
+
+- **Toàn chiều ngang.** Vùng làm việc không còn bị chặn ở 1800px (giới hạn này có từ commit đầu, nằm trong khối CSS ghi đè cho trang độc lập). Riêng sơ đồ điều phối vẫn là bảng cố định 1274px, cuộn ngang khi hẹp, theo đúng đặc tả sơ đồ.
+- **Sidebar đóng được.** Nút ở góc trên bên trái thu sidebar thành thanh biểu tượng 62px (di chuột để xem tên) và mở lại; trạng thái được nhớ khi tải lại. Dưới 850px sidebar đã là thanh biểu tượng nên nút ẩn đi.
+- **Phong cách Claude.** Nền giấy ấm, viền mảnh, màu nhấn đất nung, tiêu đề chữ serif (Tiempos nếu máy có, nếu không thì Iowan/Palatino/Georgia), sáng và tối theo hệ điều hành. Màu thành công/đang chạy giữ màu xanh lá để không lẫn với màu thương hiệu. Bảng màu lấy cảm hứng từ màu thương hiệu công khai của Anthropic; **không dùng stylesheet hay font của Anthropic**. Toàn bộ nằm trong một khối CSS ở cuối `style.css` ("Claude-style theme"): sửa các biến `--ao-*` / `--af-*` để đổi màu, xóa khối đó để quay về giao diện teal/navy cũ.
+
+### Cài đặt giao diện (sáng / tối / bảng màu)
+
+Nút mặt trời-mặt trăng ở góc trên bên phải mở hộp "Giao diện":
+- **Chế độ**: Theo hệ thống (mặc định), Sáng, Tối. Chọn Sáng hoặc Tối sẽ ghi đè cài đặt của hệ điều hành.
+- **Bảng màu**: **Claude** (nền giấy ấm, chữ serif, màu đất nung) hoặc **Cổ điển** (đúng bảng màu cũ: nền xanh lạnh, màu teal, thanh bên và thẻ sáng hơn).
+Thay đổi có hiệu lực ngay, kể cả màu nền của các terminal, và được nhớ trong trình duyệt này (localStorage). Giá trị lưu không hợp lệ thì quay về Theo hệ thống + Claude. Bảng màu nằm trong các biến `--ao-*`, `--af-*`, `--cmd-*`; bảng Cổ điển là khối `#ao-studio[data-palette="classic"]` ở cuối `style.css`.
+
+### Cỡ chữ, thanh cuộn và lăn chuột trong terminal
+
+- **Cỡ chữ giao diện là 12px** (chữ thường, nhãn, nút, bảng, ô nhập). Các tiêu đề đã to (tiêu đề trang, `h2`/`h3`, tên thương hiệu, số liệu lớn, tên nút trong sơ đồ) giữ nguyên. Trong cửa sổ CMD chỉ thanh tiêu đề (`.ao-terminal-title-row`) theo cỡ 12px; chữ bên trong terminal (xterm 13px, log 12px) không đổi.
+- **Thanh cuộn** là viên thuốc mảnh bo tròn theo giao diện, không có mũi tên ▲▼ (Edge/Chrome; Firefox dùng thanh mảnh chuẩn). Trong terminal thanh cuộn nhạt, đậm lên khi rê chuột.
+- **Lăn chuột trong terminal.** Ứng dụng chạy ở bộ đệm thường (có thanh cuộn, ví dụ log dài) cuộn bình thường. Ứng dụng toàn màn hình (màn hình phụ, như Claude Code hay Codex ở chế độ toàn màn hình) không có lịch sử cuộn để xterm cuộn; ConPTY cũng không chuyển chế độ bắt chuột sang xterm, nên xterm.js mặc định biến mỗi nấc lăn thành nhiều phím mũi tên ↑↓ mà các ứng dụng chat hiểu là "duyệt lại câu đã gõ". Biểu tượng cài đặt của terminal có mục **Lăn chuột trong ứng dụng toàn màn hình**: `PageUp/PageDown` (mặc định, mỗi nấc một trang), `Mũi tên ↑ ↓` (kiểu xterm), hoặc `Không gửi gì`. Lựa chọn áp dụng cho mọi terminal và được nhớ trong trình duyệt.
+
+## Thông báo cho Agent 0, workflow và nhiều repo
+
+- **Thông báo**: khi task của agent đánh số xong (`awaiting_review`), lỗi hoặc bị hủy, và khi workflow giao/chặn/hoàn tất một bước,
+  dashboard gõ một dòng `[AO] ...` vào terminal Agent 0 (chỉ id và trạng thái, không có nội dung worker). Tối đa một dòng mỗi 5 giây,
+  không gõ khi người dùng đang gõ trong 4 giây gần nhất, mỗi lần gõ đều ghi vào `terminal-audit.jsonl`. Tắt bằng
+  `POST /api/settings {"notify_agent0": false}`. Chỉ tin mới sau khi Agent 0 được mở mới được gửi.
+- **Workflow**: `enqueue_plan` (MCP), `POST /api/workflows`, xem ở trang "Luồng tự động". Các bước phụ thuộc nhau bằng `after`; bước sau chỉ chạy khi các bước
+  trước xong. Hạn chế đã biết: mã của bước do agent khác làm không được tự hợp nhất vào worktree của bước sau; dùng cùng một agent (`same_agent_as`) khi cần mã đó.
+- **Nhiều repo**: khai báo trong config `"repos": {"web": "C:/code/web"}`. Chọn repo khi thêm terminal hoặc `enqueue_task(repo="web")`.
+  Agent gắn với một repo. Tên repo chỉ lấy từ config, task không gửi đường dẫn.

@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import unittest
+import urllib.parse
 
 from tests.test_orchestrator import Fixture
 from agent_orchestrator.web import WebServer
@@ -138,6 +139,26 @@ class WebTests(Fixture):
         self.assertEqual(response[1]['status'], 'changes_requested')
         self.assertEqual(self.request(base + '/download/patch')[0], 400)
         self.assertEqual(len(self.e.db.list()), 1)
+
+    def test_repo_and_browse_endpoints(self):
+        status, data, _ = self.request('/api/browse')
+        self.assertEqual(status, 200)
+        self.assertIn('dirs', data)
+
+        status, data, _ = self.request('/api/browse?path=' + urllib.parse.quote(str(self.e.cfg.repo)))
+        self.assertEqual(status, 200)
+        self.assertIn('dirs', data)
+
+        status, data, _ = self.request('/api/repo/folders')
+        self.assertEqual(status, 200)
+        self.assertIn('folders', data)
+
+        status, data, _ = self.request('/api/repo', {'path': 'C:/NonExistentPathXYZ123'})
+        self.assertEqual(status, 400)
+
+        status, data, _ = self.request('/api/repo', {'path': str(self.e.cfg.repo)})
+        self.assertEqual(status, 200)
+        self.assertEqual(data['ok'], True)
 
 
 class TerminalTests(WebTests):

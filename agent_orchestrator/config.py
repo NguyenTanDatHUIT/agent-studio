@@ -39,6 +39,21 @@ class Config:
             raise OrchError("Repository and state directory must be disjoint")
         if inside(self.file, self.repo):
             raise OrchError("Owner configuration must live outside the repository")
+        # Optional extra repositories an agent may work in. Owner-declared names only; a task never supplies a path.
+        extra = self.data.get('repos', {})
+        if not isinstance(extra, dict) or len(extra) > 20:
+            raise OrchError("repos must be an object of at most 20 name -> absolute path entries")
+        self.repos = {'default': self.repo}
+        for name, value in extra.items():
+            if not isinstance(name, str) or not name.isidentifier() or name == 'default' or not isinstance(value, str):
+                raise OrchError("Repo names must be identifiers (not 'default') with string paths")
+            try:
+                folder = Path(value).resolve(strict=True)
+            except OSError as exc:
+                raise OrchError(f"Repo {name}: {exc}") from exc
+            if not folder.is_dir() or inside(self.state, folder) or inside(folder, self.state) or inside(self.file, folder):
+                raise OrchError(f"Repo {name} must be a folder disjoint from the state directory and the config file")
+            self.repos[name] = folder
         if self.data.get('version') != 1:
             raise OrchError("Unsupported config version")
         if not isinstance(self.data.get('providers', {}), dict) or not isinstance(self.data.get('tests', {}), dict):
