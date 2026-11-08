@@ -48,6 +48,8 @@ const {JSDOM}=require('jsdom');
       posts.push({input,body:JSON.parse(init.body)});
       if(failNext){const error=failNext;failNext=null;return {ok:false,status:400,json:async()=>({error})};}
       if(input==='/api/tasks')return {ok:true,json:async()=>({id:'a'.repeat(24),provider:'codex',agent:2,round:3})};
+      if(typeof input==='string'&&input.endsWith('/delete')){const id=input.split('/')[3];conversations=conversations.filter(c=>c.id!==id);return {ok:true,json:async()=>({deleted:1,files_removed:1})};}
+      if(input==='/api/conversations/delete-all'){const n=conversations.length;conversations=[];return {ok:true,json:async()=>({deleted:n,files_removed:n,kept_open:0})};}
       if(typeof input==='string'&&input.includes('/resume'))return {ok:true,json:async()=>({id:'codex-1',terminal_id:'codex-1',provider:'codex',title:'Khởi tạo dự án'})};
     }
     return {ok:true,json:async()=>routes(input)};
@@ -260,6 +262,27 @@ const {JSDOM}=require('jsdom');
   assert(transModal.querySelector('[data-transcript-content]').textContent.includes('$ codex task'),'transcript content loaded');
   transModal.querySelector('[data-transcript-close]').click();await flush();
   assert(!transModal.hasAttribute('open'),'transcript dialog closes');
+
+  // Delete: cancelling the confirmation sends nothing; confirming removes the row; delete-all needs its own confirmation.
+  const before=posts.length;
+  w.confirm=()=>false;
+  histModal.querySelector('[data-conv-delete="conv-2"]').click();await flush();
+  assert.equal(posts.length,before,'declining the confirmation sends no request');
+  w.confirm=()=>true;
+  provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();
+  histModal.querySelector('[data-conv-delete="conv-2"]').click();await flush();
+  assert.equal(posts.at(-1).input,'/api/conversations/conv-2/delete','delete POST sent to API');
+  assert.equal(histRows().length,1,'deleted row disappears from the list');
+  assert(!histModal.textContent.includes('Sửa lỗi test'));
+  w.confirm=()=>false;
+  histModal.querySelector('[data-history-clear]').click();await flush();
+  assert.notEqual(posts.at(-1).input,'/api/conversations/delete-all','delete-all needs confirmation');
+  w.confirm=()=>true;
+  const keep=conversations.slice();
+  histModal.querySelector('[data-history-clear]').click();await flush();
+  assert.deepEqual(posts.at(-1),{input:'/api/conversations/delete-all',body:{confirm:true}});
+  assert.equal(histRows().length,0,'list is empty after delete-all');
+  conversations=keep;provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();
 
   // Resume action
   provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();

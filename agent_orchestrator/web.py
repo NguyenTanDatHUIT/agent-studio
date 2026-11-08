@@ -211,8 +211,16 @@ class Handler(BaseHTTPRequestHandler):
             provider = query.get('provider', [None])[0] or None
             q = query.get('q', [None])[0] or None
             return self.reply(200, e.db.conversation_list(limit=limit, provider=provider, q=q))
+        if path == '/api/conversations/delete-all' and mutation:
+            if body != {'confirm': True}:
+                raise OrchError('Cần {"confirm": true} để xóa toàn bộ lịch sử')
+            return self.reply(200, self.server.terminals.delete_all_conversations())
         if path.startswith('/api/conversations/'):
             parts = path.strip('/').split('/')
+            if len(parts) == 4 and parts[1] == 'conversations' and parts[3] == 'delete' and mutation:
+                if body:
+                    raise OrchError('Không nhận tham số')
+                return self.reply(200, self.server.terminals.delete_conversation(parts[2]))
             if len(parts) == 4 and parts[1] == 'conversations' and parts[3] == 'transcript' and not mutation:
                 cid = parts[2]
                 try:

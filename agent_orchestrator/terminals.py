@@ -666,6 +666,37 @@ def scan_codex_session(started_time, target_cwd, timeout=12.0, codex_home=None):
     return None
 
 
+def scan_agy_session(started_time, taken, alive=lambda: True, timeout=900.0, interval=2.0, agy_home=None):
+    """Find the conversation id of a new Antigravity (agy) session.
+
+    agy keeps every conversation as <id>.db under ~/.gemini/antigravity-cli/conversations, created at the first
+    message (so the window is long: the user may type minutes after the terminal opens). A file is ours when it was
+    created after this terminal started and its id is not already used by another history entry; when several
+    qualify, the earliest wins (terminals started earlier claim earlier files).
+    """
+    root = Path(agy_home) / 'conversations' if agy_home else Path.home() / '.gemini' / 'antigravity-cli' / 'conversations'
+    end = time.time() + timeout
+    while alive() and time.time() < end:
+        try:
+            if root.is_dir():
+                found = []
+                for f in root.glob('*.db'):
+                    if not SESSION.fullmatch(f.stem) or f.stem in taken():
+                        continue
+                    try:
+                        born = f.stat().st_ctime  # creation time on Windows
+                    except OSError:
+                        continue
+                    if born >= started_time - 2.0:
+                        found.append((born, f.stem))
+                if found:
+                    return min(found)[1]
+        except Exception:
+            pass
+        time.sleep(interval)
+    return None
+
+
 class Terminals:
     def __init__(self, cfg, db):
         self.cfg = cfg
@@ -677,6 +708,7 @@ class Terminals:
         self.skipped = set()
         self.last_send = {}
         self.last_open = -1e9
+        self.agy_claim = threading.Lock()
         self.notice_cursor = None   # (session, last notice id already delivered)
         self.last_notice_sent = 0.0
         self.stop_event = threading.Event()
@@ -1055,6 +1087,29 @@ class Terminals:
             session.provider, session.task_id, session.agent = provider, task_id, number
             self.sessions[key] = session
 
+            if provider == 'agy' and not resume:
+                start_t = time.time()
+                def agy_taken():
+                    return {c['session_id'] for c in self.db.conversation_list(limit=200, provider='agy') if c.get('session_id')}
+                def watch_agy():
+                    # The claim is serialised so two agy terminals opened close together never take the same id.
+                    while session.alive:
+                        found = scan_agy_session(start_t, agy_taken, alive=lambda: session.alive, timeout=30.0)
+                        if not found:
+                            if time.time() - start_t > 900:
+                                return
+                            continue
+                        with self.agy_claim:
+                            if found in agy_taken():
+                                continue
+                            session.session_id = found
+                            try:
+                                self.db.conversation_update(conv_id, session_id=found)
+                            except Exception:
+                                pass
+                            return
+                threading.Thread(target=watch_agy, daemon=True).start()
+
             if provider == 'codex' and not resume:
                 start_t = time.time()
                 def watch_codex():
@@ -1127,6 +1182,54 @@ class Terminals:
         except OSError:
             pass
         return res
+
+    def live_conversation_ids(self):
+        with self.lock:
+            return {getattr(s, 'conversation_id', None) for s in self.sessions.values() if s.alive} - {None}
+
+    def delete_conversation(self, conv_id):
+        """Remove one conversation and its transcript file. Refuses while its terminal is still open."""
+        conv = self.db.conversation_get(conv_id)  # raises OrchError when unknown
+        if conv_id in self.live_conversation_ids():
+            raise OrchError('Phiên đang mở trong terminal. Đóng terminal trước khi xóa.')
+        removed = self._remove_transcript_file(conv.get('transcript_path', ''))
+        self.db.conversation_delete(conv_id)
+        self._audit({'action': 'delete', 'conversation_id': conv_id, 'provider': conv.get('provider')})
+        return {'deleted': 1, 'files_removed': int(removed)}
+
+    def delete_all_conversations(self):
+        """Remove every conversation that is not open right now (history cleanup)."""
+        live, deleted, files = self.live_conversation_ids(), 0, 0
+        while True:
+            batch = [c for c in self.db.conversation_list(limit=200) if c['id'] not in live]
+            if not batch:
+                break
+            for conv in batch:
+                files += int(self._remove_transcript_file(conv.get('transcript_path', '')))
+                self.db.conversation_delete(conv['id'])
+                deleted += 1
+        self._audit({'action': 'delete_all', 'count': deleted})
+        return {'deleted': deleted, 'files_removed': files, 'kept_open': len(live)}
+
+    def _remove_transcript_file(self, raw_path):
+        """Delete a transcript only if it really lives under state/transcripts (the DB value is never trusted)."""
+        try:
+            path = Path(raw_path).resolve()
+            root = (self.cfg.state / 'transcripts').resolve()
+            if raw_path and inside(path, root) and path.is_file() and not Path(raw_path).is_symlink():
+                path.unlink()
+                return True
+        except (OSError, ValueError, TypeError):
+            pass
+        return False
+
+    def _audit(self, fields):
+        entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), **fields}
+        try:
+            with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+                audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        except OSError:
+            pass
 
     def read_transcript(self, conv_id, after=0, limit=200):
         conv = self.db.conversation_get(conv_id)

@@ -305,6 +305,11 @@ class Store:
             raise OrchError("Unknown conversation")
         return dict(row)
 
+    def conversation_delete(self, cid):
+        with self.connect() as db:
+            if db.execute('DELETE FROM conversations WHERE id=?', (cid,)).rowcount == 0:
+                raise OrchError("Unknown conversation")
+
     def conversation_list(self, limit=50, provider=None, q=None):
         if type(limit) is not int or not 1 <= limit <= 200:
             raise OrchError("limit must be 1..200")

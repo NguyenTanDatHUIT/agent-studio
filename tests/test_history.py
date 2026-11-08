@@ -686,6 +686,72 @@ class TestWebHistoryApi(unittest.TestCase):
         self.assertEqual(data['total'], 2)
         self.assertFalse(data['has_more'])
 
+    def _add_conv(self, cid, log_path, **extra):
+        self.engine.db.conversation_add({'id': cid, 'provider': 'claude', 'kind': 'agent', 'cwd': str(self.repo),
+                                         'title': 't', 'session_id': 'sess-12345678',
+                                         'transcript_path': str(log_path), **extra})
+
+    def test_delete_conversation_removes_row_and_file(self):
+        root = self.state / 'transcripts'
+        root.mkdir(parents=True, exist_ok=True)
+        log = root / 'del-1.log'
+        log.write_text('hello', encoding='utf-8')
+        self._add_conv('del-1', log)
+        status, _ = self.request('/api/conversations/del-1/delete', method='POST', token=False, body={})
+        self.assertEqual(status, 401)
+        status, _ = self.request('/api/conversations/del-1/delete', method='POST', origin='http://evil.com', body={})
+        self.assertEqual(status, 403)
+        self.assertTrue(log.exists())
+        status, data = self.request('/api/conversations/del-1/delete', method='POST', body={})
+        self.assertEqual((status, data['deleted'], data['files_removed']), (200, 1, 1))
+        self.assertFalse(log.exists())
+        status, _ = self.request('/api/conversations/del-1')
+        self.assertEqual(status, 400)
+        status, _ = self.request('/api/conversations/del-1/delete', method='POST', body={})
+        self.assertEqual(status, 400)  # already gone
+        audit = (self.state / 'terminal-audit.jsonl').read_text(encoding='utf-8')
+        self.assertIn('"action": "delete"', audit)
+
+    def test_delete_never_touches_files_outside_transcripts(self):
+        outside = self.tmp / 'precious.txt'
+        outside.write_text('keep', encoding='utf-8')
+        self._add_conv('del-evil', outside)
+        status, data = self.request('/api/conversations/del-evil/delete', method='POST', body={})
+        self.assertEqual((status, data['files_removed']), (200, 0))
+        self.assertTrue(outside.exists())
+
+    def test_delete_refused_while_terminal_open(self):
+        info = self.server.terminals.open('agent', 'claude')
+        try:
+            conv_id = next(iter(self.server.terminals.live_conversation_ids()))
+            status, data = self.request(f'/api/conversations/{conv_id}/delete', method='POST', body={})
+            self.assertEqual(status, 400)
+            self.assertIn('đang mở', data['error'])
+            status, data = self.request('/api/conversations/delete-all', method='POST', body={'confirm': True})
+            self.assertEqual((status, data['kept_open']), (200, 1))
+            self.assertEqual(self.request(f'/api/conversations/{conv_id}')[0], 200)
+        finally:
+            self.server.terminals.close(info['id'])
+
+    def test_delete_all_requires_confirm(self):
+        root = self.state / 'transcripts'
+        root.mkdir(parents=True, exist_ok=True)
+        for i in range(3):
+            log = root / f'a{i}.log'
+            log.write_text('x', encoding='utf-8')
+            self._add_conv(f'a{i}', log)
+        self.assertEqual(self.request('/api/conversations/delete-all', method='POST', body={})[0], 400)
+        self.assertEqual(self.request('/api/conversations/delete-all', method='POST', body={'confirm': 'yes'})[0], 400)
+        self.assertEqual(len(self.request('/api/conversations')[1]), 3)
+        status, data = self.request('/api/conversations/delete-all', method='POST', body={'confirm': True})
+        self.assertEqual((status, data['deleted'], data['files_removed']), (200, 3, 3))
+        self.assertEqual(self.request('/api/conversations')[1], [])
+
+    def test_bridge_cannot_delete(self):
+        for path in ('/api/bridge/conversations/x/delete', '/api/bridge/conversations/delete-all'):
+            status, _ = self.request(path, method='POST', token=False, bridge_key=self.server.bridge_key, body={})
+            self.assertIn(status, (401, 404))
+
     def test_bridge_cannot_resume(self):
         # Bridge key allows only reading or open_agent / input, never resume
         status, _ = self.request('/api/bridge/conversations/some-id/resume', method='POST',
@@ -723,3 +789,54 @@ class TestWebHistoryApi(unittest.TestCase):
             self.server.terminals.resume_conversation = orig_resume
 
 
+
+
+class TestAgySessionScan(unittest.TestCase):
+    """agy keeps each conversation as <id>.db; the id is found from the file created after the terminal opened."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='agy-scan-'))
+        self.root = self.tmp / 'conversations'
+        self.root.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def scan(self, started, taken=(), **kw):
+        from agent_orchestrator.terminals import scan_agy_session
+        kw.setdefault('timeout', 0.3)
+        kw.setdefault('interval', 0.05)
+        return scan_agy_session(started, lambda: set(taken), agy_home=self.tmp, **kw)
+
+    def test_finds_new_database_and_ignores_side_files(self):
+        started = time.time()
+        (self.root / 'aaaaaaaa-1111-2222-3333-444444444444.db-wal').write_text('')
+        (self.root / 'bbbbbbbb-1111-2222-3333-444444444444.pb').write_text('')
+        (self.root / 'cccccccc-1111-2222-3333-444444444444.db').write_text('x')
+        self.assertEqual(self.scan(started), 'cccccccc-1111-2222-3333-444444444444')
+
+    def test_ignores_databases_that_existed_before_the_terminal(self):
+        (self.root / 'dddddddd-1111-2222-3333-444444444444.db').write_text('x')
+        self.assertIsNone(self.scan(time.time() + 60))  # started "later" than the file was created
+
+    def test_skips_ids_already_used_by_another_history_entry(self):
+        started = time.time()
+        (self.root / 'eeeeeeee-1111-2222-3333-444444444444.db').write_text('x')
+        self.assertIsNone(self.scan(started, taken={'eeeeeeee-1111-2222-3333-444444444444'}))
+        (self.root / 'ffffffff-1111-2222-3333-444444444444.db').write_text('x')
+        self.assertEqual(self.scan(started, taken={'eeeeeeee-1111-2222-3333-444444444444'}),
+                         'ffffffff-1111-2222-3333-444444444444')
+
+    def test_earliest_created_wins_and_bad_names_are_ignored(self):
+        started = time.time()
+        (self.root / 'first-conversation-0001.db').write_text('x')
+        time.sleep(0.05)
+        (self.root / 'second-conversation-0002.db').write_text('x')
+        (self.root / 'x y.db').write_text('x')  # not a valid id
+        self.assertEqual(self.scan(started), 'first-conversation-0001')
+
+    def test_waits_for_a_late_file_and_stops_when_the_terminal_closes(self):
+        started = time.time()
+        threading.Timer(0.2, lambda: (self.root / 'late-conversation-0003.db').write_text('x')).start()
+        self.assertEqual(self.scan(started, timeout=3), 'late-conversation-0003')
+        self.assertIsNone(self.scan(time.time() + 60, alive=lambda: False, timeout=5))

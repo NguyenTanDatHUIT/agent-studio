@@ -748,7 +748,7 @@
 
   const historyModal=document.createElement('dialog');
   historyModal.className='ao-window-dialog ao-history-dialog';
-  historyModal.innerHTML=`<div class="ao-history-header"><div><h2>Lịch sử chat &amp; phiên làm việc</h2><p class="ao-muted" style="margin:2px 0 0;font-size:12px">Xem lại log hoặc mở lại phiên của Agent 0 và các terminal agent</p></div><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-history-close aria-label="Đóng lịch sử"><i data-lucide="x"></i></button></div><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div>`;
+  historyModal.innerHTML=`<div class="ao-history-header"><div><h2>Lịch sử chat &amp; phiên làm việc</h2><p class="ao-muted" style="margin:2px 0 0;font-size:12px">Xem lại log hoặc mở lại phiên của Agent 0 và các terminal agent</p></div><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-history-close aria-label="Đóng lịch sử"><i data-lucide="x"></i></button></div><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button><button type="button" class="ao-btn cursor-interaction" data-history-clear title="Xóa toàn bộ lịch sử không đang mở">Xóa tất cả</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div>`;
   root.append(historyModal);
 
   const transcriptModal=document.createElement('dialog');
@@ -813,7 +813,7 @@
         const stLabel=convStatusLabels[st]||st;
         const sub=[c.repo?`repo: ${c.repo}`:'',c.task_id?`task ${short(c.task_id)}`:'',c.cwd?c.cwd:''].filter(Boolean).join(' · ');
         const isLive=c.status==='active'||state.sessions.some(s=>s.id===c.terminal_id&&s.alive);
-        html+=`<div class="ao-history-row" data-conv-id="${esc(c.id)}"><time class="ao-history-time">${esc(timeStr)}</time><span class="ao-history-badge ${esc(provClass)}">${esc(badgeText)}</span><div class="ao-history-info"><strong class="ao-history-title" title="${esc(c.title||c.id)}">${esc(c.title||'Phiên làm việc '+short(c.id))}</strong><span class="ao-history-context" title="${esc(sub)}">${esc(sub||short(c.id))}</span></div><span class="ao-conv-status ${esc(st)}">${esc(stLabel)}</span><div class="ao-history-actions"><button type="button" class="ao-btn cursor-interaction" data-conv-resume="${esc(c.id)}" ${isLive?'disabled title="Phiên đang mở trong terminal"':''}>Mở lại</button><button type="button" class="ao-btn cursor-interaction" data-conv-view="${esc(c.id)}" title="Xem lại toàn bộ nội dung transcript">Xem lại</button></div></div>`;
+        html+=`<div class="ao-history-row" data-conv-id="${esc(c.id)}"><time class="ao-history-time">${esc(timeStr)}</time><span class="ao-history-badge ${esc(provClass)}">${esc(badgeText)}</span><div class="ao-history-info"><strong class="ao-history-title" title="${esc(c.title||c.id)}">${esc(c.title||'Phiên làm việc '+short(c.id))}</strong><span class="ao-history-context" title="${esc(sub)}">${esc(sub||short(c.id))}</span></div><span class="ao-conv-status ${esc(st)}">${esc(stLabel)}</span><div class="ao-history-actions"><button type="button" class="ao-btn cursor-interaction" data-conv-resume="${esc(c.id)}" ${isLive?'disabled title="Phiên đang mở trong terminal"':''}>Mở lại</button><button type="button" class="ao-btn cursor-interaction" data-conv-view="${esc(c.id)}" title="Xem lại toàn bộ nội dung transcript">Xem lại</button><button type="button" class="ao-btn cursor-interaction" data-conv-delete="${esc(c.id)}" ${isLive?'disabled title="Đóng terminal trước khi xóa"':'title="Xóa phiên và bản ghi này khỏi máy"'}>Xóa</button></div></div>`;
       }
     }
     listEl.innerHTML=html;
@@ -830,6 +830,16 @@
   historyModal.querySelector('[data-history-search]').addEventListener('input',()=>{clearTimeout(historySearchTimer);historySearchTimer=setTimeout(loadHistory,200);});
   historyModal.querySelector('[data-history-provider]').addEventListener('change',loadHistory);
   historyModal.querySelector('[data-history-refresh]').addEventListener('click',loadHistory);
+  historyModal.querySelector('[data-history-clear]').addEventListener('click',()=>{
+    if(!confirm('Xóa TOÀN BỘ lịch sử chat và bản ghi transcript (trừ các phiên đang mở)? Không thể hoàn tác.'))return;
+    runAction(async()=>{const r=await api('/conversations/delete-all',{confirm:true});notify(`Đã xóa ${r.deleted} phiên${r.kept_open?` (giữ ${r.kept_open} phiên đang mở)`:''}.`);await loadHistory();});
+  });
+  historyModal.addEventListener('click',event=>{
+    const del=event.target.closest('[data-conv-delete]');if(!del||del.disabled)return;
+    const id=del.dataset.convDelete,conv=convCache.find(c=>c.id===id)||{};
+    if(!confirm(`Xóa phiên "${conv.title||short(id)}" và bản ghi của nó? Không thể hoàn tác.`))return;
+    runAction(async()=>{await api(`/conversations/${id}/delete`,{});notify('Đã xóa phiên và bản ghi.');await loadHistory();});
+  });
   historyModal.querySelector('[data-history-close]').addEventListener('click',()=>{
     if(typeof historyModal.close==='function')historyModal.close();
     else historyModal.removeAttribute('open');
