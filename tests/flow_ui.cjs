@@ -21,6 +21,10 @@ const {JSDOM}=require('jsdom');
   const a='a'.repeat(24),b='b'.repeat(24),c='c'.repeat(24);
   let tasks=[task(a,'claude','queued'),task(b,'codex','queued')],events=[];
   let agent0={connected:false},sessions=[],runners={managed:false,providers:{}},agents=[{agent:2,name:'codex 2',provider:'codex',kind:'queue',remember_context:true}],defaultRemember=true,posts=[],failNext=null;
+  let conversations=[
+    {id:'conv-1',session_id:'s-1',kind:'agent',provider:'codex',agent_number:1,title:'Khởi tạo dự án',repo:'default',task_id:null,cwd:'C:/fixture',status:'exited',created_at:'2026-11-08T00:00:00Z',updated_at:'2026-11-08T00:10:00Z',terminal_id:'codex-1'},
+    {id:'conv-2',session_id:'s-2',kind:'worker',provider:'claude',agent_number:2,title:'Sửa lỗi test',repo:'default',task_id:a,cwd:'C:/fixture',status:'awaiting_review',created_at:'2026-11-07T12:00:00Z',updated_at:'2026-11-07T12:30:00Z',terminal_id:'claude-2'}
+  ];
   const routes=input=>{
     if(input==='/api/config')return {repo:'C:/fixture',base_ref:'HEAD',providers:{claude:true,codex:true},tests:['unit'],execution_enabled:true};
     if(input==='/api/tasks')return tasks;
@@ -31,6 +35,12 @@ const {JSDOM}=require('jsdom');
     if(input==='/api/agents')return agents;
     if(input==='/api/settings')return {default_remember:defaultRemember};
     if(input==='/api/workflows')return [];
+    if(typeof input==='string'&&input.startsWith('/api/conversations')){
+      if(input.includes('/transcript'))return {lines:[{seq:1,timestamp:'2026-11-08T00:01:00Z',text:'$ codex task\nTask started'}],next_after:1,has_more:false};
+      const url=new URL('http://localhost'+input);
+      const prov=url.searchParams.get('provider');
+      return prov?conversations.filter(c=>c.provider===prov):conversations;
+    }
     return {available:false,text:'',truncated:false};
   };
   w.fetch=async (input,init)=>{
@@ -38,6 +48,7 @@ const {JSDOM}=require('jsdom');
       posts.push({input,body:JSON.parse(init.body)});
       if(failNext){const error=failNext;failNext=null;return {ok:false,status:400,json:async()=>({error})};}
       if(input==='/api/tasks')return {ok:true,json:async()=>({id:'a'.repeat(24),provider:'codex',agent:2,round:3})};
+      if(typeof input==='string'&&input.includes('/resume'))return {ok:true,json:async()=>({id:'codex-1',terminal_id:'codex-1',provider:'codex',title:'Khởi tạo dự án'})};
     }
     return {ok:true,json:async()=>routes(input)};
   };
@@ -224,6 +235,40 @@ const {JSDOM}=require('jsdom');
   tasks=[{...task(a,'claude','failed'),result:{error:'Worker produced no changes',worker:{exit_code:0,reason:null}}}];events=[];await poll();
   assert(node('claude').includes('Thất bại')&&!node('claude').includes('✓ Code đã sẵn sàng'),'failed task is not marked as ready');
 
+  // History modal and transcript viewer verification
+  const histBtn=d.querySelector('[data-console-action="history"]');
+  assert(histBtn,'history button is mounted in toolbar');
+  histBtn.click();await flush();
+  const histModal=d.querySelector('.ao-history-dialog');
+  assert(histModal&&histModal.hasAttribute('open'),'history dialog opens on click');
+  const histRows=()=>[...histModal.querySelectorAll('.ao-history-row')];
+  assert.equal(histRows().length,2,'two conversation rows rendered');
+  assert(histModal.textContent.includes('Khởi tạo dự án'),'title is displayed');
+  assert(histModal.textContent.includes('Codex 1')&&histModal.textContent.includes('Claude 2'),'agent badges are shown');
+
+  // Filter provider
+  const provSelect=histModal.querySelector('[data-history-provider]');
+  provSelect.value='claude';provSelect.dispatchEvent(new w.Event('change'));await flush();
+  assert.equal(histRows().length,1,'filtering by claude yields one row');
+
+  // View transcript dialog
+  const viewBtn=histModal.querySelector('[data-conv-view="conv-2"]');
+  assert(viewBtn,'view button exists for conv-2');
+  viewBtn.click();await flush();
+  const transModal=d.querySelector('.ao-transcript-dialog');
+  assert(transModal&&transModal.hasAttribute('open'),'transcript dialog opens');
+  assert(transModal.querySelector('[data-transcript-content]').textContent.includes('$ codex task'),'transcript content loaded');
+  transModal.querySelector('[data-transcript-close]').click();await flush();
+  assert(!transModal.hasAttribute('open'),'transcript dialog closes');
+
+  // Resume action
+  provSelect.value='';provSelect.dispatchEvent(new w.Event('change'));await flush();
+  const resumeBtn=histModal.querySelector('[data-conv-resume="conv-1"]');
+  assert(resumeBtn,'resume button exists for conv-1');
+  resumeBtn.click();await flush();
+  assert.equal(posts.at(-1).input,'/api/conversations/conv-1/resume','resume POST sent to API');
+  assert(d.querySelector('[data-toast]').textContent.includes('Đã khôi phục phiên'),'toast confirms resume');
+  assert(!histModal.hasAttribute('open'),'history dialog closes on resume');
   assert.deepEqual(errors,[]);
   console.log('PASS: fixed board CSS, 7 nodes/7 edges, endpoint math, horizontal scroller, real event mapping, running-task selection, selected vs running, stable SVG, stopped/review/unknown states, existing task handler, reduced-motion rules, live (non-sample) Agent 0/runner/terminal/event data.');
   dom.window.close();

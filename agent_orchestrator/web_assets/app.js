@@ -92,6 +92,7 @@
   bar.querySelector('[data-compact-mode-mount]').append(toolbar.querySelector('.ao-console-mode'));
   const add=inventory.querySelector('[data-console-action="add"]');add.innerHTML='<i data-lucide="plus"></i>CMD';add.setAttribute('aria-label','Thêm cửa sổ theo dõi');bar.querySelector('.ao-console-bar-actions').prepend(add);
   const reload=inventory.querySelector('[data-console-action="feed"]');reload.textContent='Làm mới log';bar.querySelector('[data-compact-extra-mount]').append(reload);
+  const hist=inventory.querySelector('[data-console-action="history"]');if(hist){hist.innerHTML='<i data-lucide="history"></i>Lịch sử';hist.setAttribute('aria-label','Xem lịch sử phiên và resume');bar.querySelector('[data-compact-extra-mount]').prepend(hist);}
   toolbar.replaceWith(bar);inventory.remove();
   $('.ao-console-hint').innerHTML='<span>Kéo tay nắm để sắp xếp · Alt + ← / → để di chuyển cửa sổ</span><span>Log local · Giao việc qua hàng đợi có phạm vi</span>';
   $('[data-console-announce]').textContent='';
@@ -743,6 +744,175 @@
 
   function openRepoDialog(){
     pickFolderNative();
+  }
+
+  const historyModal=document.createElement('dialog');
+  historyModal.className='ao-window-dialog ao-history-dialog';
+  historyModal.innerHTML=`<div class="ao-history-header"><div><h2>Lịch sử chat &amp; phiên làm việc</h2><p class="ao-muted" style="margin:2px 0 0;font-size:12px">Xem lại log hoặc mở lại phiên của Agent 0 và các terminal agent</p></div><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-history-close aria-label="Đóng lịch sử"><i data-lucide="x"></i></button></div><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div>`;
+  root.append(historyModal);
+
+  const transcriptModal=document.createElement('dialog');
+  transcriptModal.className='ao-window-dialog ao-transcript-dialog';
+  transcriptModal.innerHTML=`<div class="ao-transcript-header"><div><h2 data-transcript-title>Xem lại transcript</h2><p class="ao-muted" style="margin:2px 0 0;font-size:12px" data-transcript-meta>Nội dung bản ghi màn hình (chỉ đọc)</p></div><div class="ao-actions"><button type="button" class="ao-btn cursor-interaction" data-transcript-copy><i data-lucide="copy"></i>Sao chép</button><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-transcript-close aria-label="Đóng transcript"><i data-lucide="x"></i></button></div></div><div class="ao-transcript-body"><pre class="ao-transcript-content" data-transcript-content role="log" tabindex="0"></pre></div><div class="ao-transcript-footer"><span class="ao-muted" data-transcript-count>0 dòng</span><button type="button" class="ao-btn cursor-interaction" data-transcript-more hidden>Tải thêm dòng cũ hơn</button></div>`;
+  root.append(transcriptModal);
+
+  function formatConvDate(isoStr){
+    if(!isoStr)return 'Khác';
+    try{
+      const d=new Date(isoStr);
+      if(isNaN(d.getTime()))return 'Khác';
+      const now=new Date(),today=new Date(now.getFullYear(),now.getMonth(),now.getDate()),target=new Date(d.getFullYear(),d.getMonth(),d.getDate()),diffDays=Math.round((today-target)/(1000*60*60*24));
+      if(diffDays===0)return 'Hôm nay';
+      if(diffDays===1)return 'Hôm qua';
+      return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    }catch(_){return 'Khác';}
+  }
+  function convAgentBadge(c){
+    if(c.kind==='agent0'||c.provider==='agent0')return 'Agent 0';
+    const p=c.provider||'agent',names={claude:'Claude',codex:'Codex',agy:'Antigravity'},pName=names[p]||p;
+    return c.agent_number?`${pName} ${c.agent_number}`:pName;
+  }
+  const convStatusLabels={active:'Đang mở',exited:'Đã đóng',failed:'Lỗi',awaiting_review:'Chờ review'};
+  let convCache=[];
+  async function loadHistory(){
+    const listEl=historyModal.querySelector('[data-history-list]');
+    listEl.innerHTML='<p class="ao-muted" style="padding:24px;text-align:center">Đang tải lịch sử…</p>';
+    const q=historyModal.querySelector('[data-history-search]').value.trim();
+    const prov=historyModal.querySelector('[data-history-provider]').value;
+    const params=new URLSearchParams({limit:'100'});
+    if(q)params.set('q',q);
+    if(prov)params.set('provider',prov);
+    try{
+      const convs=await api('/conversations?'+params.toString());
+      convCache=convs;
+      renderHistoryList(convs);
+    }catch(err){
+      listEl.innerHTML=`<p class="ao-notice error" style="margin:16px">${esc(err.message)}</p>`;
+    }
+  }
+  function renderHistoryList(convs){
+    const listEl=historyModal.querySelector('[data-history-list]');
+    if(!convs||!convs.length){
+      listEl.innerHTML='<p class="ao-empty" style="padding:24px;text-align:center">Không tìm thấy phiên hội thoại nào.</p>';
+      return;
+    }
+    const groups=new Map();
+    for(const c of convs){
+      const dt=formatConvDate(c.updated_at||c.created_at);
+      if(!groups.has(dt))groups.set(dt,[]);
+      groups.get(dt).push(c);
+    }
+    let html='';
+    for(const [dateLabel,items] of groups){
+      html+=`<div class="ao-history-group-title">${esc(dateLabel)}</div>`;
+      for(const c of items){
+        const timeStr=c.created_at?new Date(c.created_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}):'—';
+        const badgeText=convAgentBadge(c);
+        const provClass=c.kind==='agent0'?'agy':(c.provider||'codex');
+        const st=c.status||'exited';
+        const stLabel=convStatusLabels[st]||st;
+        const sub=[c.repo?`repo: ${c.repo}`:'',c.task_id?`task ${short(c.task_id)}`:'',c.cwd?c.cwd:''].filter(Boolean).join(' · ');
+        const isLive=c.status==='active'||state.sessions.some(s=>s.id===c.terminal_id&&s.alive);
+        html+=`<div class="ao-history-row" data-conv-id="${esc(c.id)}"><time class="ao-history-time">${esc(timeStr)}</time><span class="ao-history-badge ${esc(provClass)}">${esc(badgeText)}</span><div class="ao-history-info"><strong class="ao-history-title" title="${esc(c.title||c.id)}">${esc(c.title||'Phiên làm việc '+short(c.id))}</strong><span class="ao-history-context" title="${esc(sub)}">${esc(sub||short(c.id))}</span></div><span class="ao-conv-status ${esc(st)}">${esc(stLabel)}</span><div class="ao-history-actions"><button type="button" class="ao-btn cursor-interaction" data-conv-resume="${esc(c.id)}" ${isLive?'disabled title="Phiên đang mở trong terminal"':''}>Mở lại</button><button type="button" class="ao-btn cursor-interaction" data-conv-view="${esc(c.id)}" title="Xem lại toàn bộ nội dung transcript">Xem lại</button></div></div>`;
+      }
+    }
+    listEl.innerHTML=html;
+    icons();
+  }
+  function openHistoryModal(){
+    closeSettings();
+    if(typeof historyModal.showModal==='function')historyModal.showModal();
+    else historyModal.setAttribute('open','');
+    loadHistory();
+    icons();
+  }
+  let historySearchTimer=null;
+  historyModal.querySelector('[data-history-search]').addEventListener('input',()=>{clearTimeout(historySearchTimer);historySearchTimer=setTimeout(loadHistory,200);});
+  historyModal.querySelector('[data-history-provider]').addEventListener('change',loadHistory);
+  historyModal.querySelector('[data-history-refresh]').addEventListener('click',loadHistory);
+  historyModal.querySelector('[data-history-close]').addEventListener('click',()=>{
+    if(typeof historyModal.close==='function')historyModal.close();
+    else historyModal.removeAttribute('open');
+  });
+
+  let activeTranscriptConv=null,transcriptLines=[],transcriptHasMore=false,nextTranscriptAfter=0;
+  async function openTranscript(convId){
+    const conv=convCache.find(c=>c.id===convId)||{id:convId};
+    activeTranscriptConv=conv;
+    transcriptLines=[];
+    nextTranscriptAfter=0;
+    transcriptModal.querySelector('[data-transcript-title]').textContent=conv.title?`Xem lại: ${conv.title}`:`Xem lại transcript (${short(convId)})`;
+    transcriptModal.querySelector('[data-transcript-meta]').textContent=`${convAgentBadge(conv)} · ${conv.repo||'default'}${conv.task_id?' · Task '+short(conv.task_id):''}`;
+    const bodyEl=transcriptModal.querySelector('[data-transcript-content]');
+    bodyEl.textContent='Đang tải bản ghi…';
+    transcriptModal.querySelector('[data-transcript-count]').textContent='0 dòng';
+    transcriptModal.querySelector('[data-transcript-more]').hidden=true;
+    if(typeof transcriptModal.showModal==='function')transcriptModal.showModal();
+    else transcriptModal.setAttribute('open','');
+    icons();
+    await loadTranscriptChunk(convId,0);
+  }
+  async function loadTranscriptChunk(convId,afterSeq){
+    try{
+      const res=await api(`/conversations/${convId}/transcript?after=${afterSeq}&limit=500`);
+      const lines=res.lines||[];
+      transcriptLines=transcriptLines.concat(lines);
+      nextTranscriptAfter=res.next_after??(afterSeq+lines.length);
+      transcriptHasMore=!!res.has_more;
+      const bodyEl=transcriptModal.querySelector('[data-transcript-content]');
+      if(!transcriptLines.length){
+        bodyEl.textContent='Chưa có nội dung bản ghi màn hình cho phiên này.';
+      }else{
+        bodyEl.textContent=transcriptLines.map(l=>{
+          let prefix='';
+          if(l.timestamp){try{prefix=`[${new Date(l.timestamp).toLocaleTimeString('vi-VN')}] `;}catch(_){}}
+          return `${prefix}${l.text}`;
+        }).join('\n');
+      }
+      transcriptModal.querySelector('[data-transcript-count]').textContent=`${transcriptLines.length} dòng`;
+      transcriptModal.querySelector('[data-transcript-more]').hidden=!transcriptHasMore;
+    }catch(err){
+      transcriptModal.querySelector('[data-transcript-content]').textContent=`Lỗi đọc transcript: ${err.message}`;
+    }
+  }
+  transcriptModal.querySelector('[data-transcript-close]').addEventListener('click',()=>{
+    if(typeof transcriptModal.close==='function')transcriptModal.close();
+    else transcriptModal.removeAttribute('open');
+  });
+  transcriptModal.querySelector('[data-transcript-copy]').addEventListener('click',()=>{
+    const text=transcriptModal.querySelector('[data-transcript-content]').textContent||'';
+    if(!text)return;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(()=>notify('Đã sao chép transcript.')).catch(()=>notify('Không thể sao chép.',true));
+    }else{
+      notify('Clipboard không khả dụng.',true);
+    }
+  });
+  transcriptModal.querySelector('[data-transcript-more]').addEventListener('click',()=>{
+    if(activeTranscriptConv)loadTranscriptChunk(activeTranscriptConv.id,nextTranscriptAfter);
+  });
+  async function resumeConversation(convId){
+    const row=historyModal.querySelector(`[data-conv-id="${convId}"]`);
+    const btn=row?.querySelector('[data-conv-resume]');
+    if(btn){btn.disabled=true;btn.textContent='Đang mở…';}
+    try{
+      const res=await api(`/conversations/${convId}/resume`,{});
+      notify(`Đã khôi phục phiên: ${res.title||convId}`);
+      if(typeof historyModal.close==='function')historyModal.close();
+      else historyModal.removeAttribute('open');
+      await refreshData();
+      const winId=res.id||res.terminal_id;
+      if(winId){
+        const idx=state.windows.findIndex(w=>w.id===winId);
+        if(idx>=0){
+          state.windowPage=Math.floor(idx/(layouts[state.layout][0]*layouts[state.layout][1]))+1;
+          renderWindows();
+        }
+      }
+    }catch(err){
+      notify(`Không thể resume: ${err.message}`,true);
+      if(btn){btn.disabled=false;btn.textContent='Mở lại';}
+    }
   }
   root.addEventListener('input',e=>{if(e.target.dataset.command)state.drafts.set(e.target.dataset.command,e.target.value);});
   root.addEventListener('click',event=>{
