@@ -157,3 +157,15 @@ Hạn chế đã biết: agy không có thông tin `cwd` trong tên file nên kh
    - Tuyệt đối cách ly Agent 0: MCP bridge không có quyền gọi API resume hay xóa.
    - Xóa: `POST /api/conversations/<id>/delete` (body rỗng) và `POST /api/conversations/delete-all` (body đúng `{"confirm": true}`). Trả `{"deleted": n, "files_removed": m}` (xóa tất cả có thêm `kept_open`). Từ chối với phiên đang mở. File chỉ bị xóa nếu nằm trong `state/transcripts`, không phải symlink; đường dẫn lưu trong DB không được tin tưởng. Có ghi audit (`delete`, `delete_all`).
    - Cấm UNC path và symlink; kiểm tra CWD nghiêm ngặt qua danh sách repo hoặc worktree hợp lệ.
+
+
+## 6. Cuộc trò chuyện mới và đánh số agent
+
+Một "cuộc trò chuyện" là một lần chạy công cụ. Số hiệu agent (`agents.n`, AUTOINCREMENT toàn cục) trước đây cộng dồn qua các lần chạy; nay được đặt lại:
+
+- `Store.reset_chat()`: trong một giao dịch `BEGIN IMMEDIATE`, kiểm tra không còn task `queued/running` và không còn workflow chưa hủy có bước `waiting/blocked/released`, rồi `DELETE FROM agents`, xóa `notices` và đặt lại `sqlite_sequence` của `agents`. Nếu còn việc đang chạy thì ném `OrchError` (không xóa gì). `Store.chat_busy()` trả số task/workflow đang chạy.
+- `serve_web()` gọi `reset_chat()` khi khởi động (bỏ qua nếu bị từ chối): mỗi lần mở công cụ là cuộc trò chuyện mới, số hiệu bắt đầu từ 1.
+- `Terminals.new_chat()` (nút "Cuộc trò chuyện mới"): kiểm tra bận trước khi đóng bất cứ thứ gì; đóng từng cửa sổ (`close(sid)`, không dừng bộ giám sát); đặt các hội thoại đang mở thành `closed` (vẫn nằm trong lịch sử); gọi `reset_chat()`; xóa `dismissed/skipped/agent_views/notice_cursor`; mở lại Agent 0 (nếu `acknowledge_local_execution`); ghi audit `new_chat`.
+- API: `GET /api/chat` trả `{windows, tasks, workflows, can_start, reason, agent0}` (để hộp thoại giải thích trước khi xác nhận); `POST /api/chat/new` body đúng `{"confirm": true}` (tùy chọn `cols`, `rows`) trả `{closed, agents_removed, agent0}`. Là mutation (token + Origin), không có trên bridge của Agent 0.
+- Resume sau khi đặt lại số: `open(kind='agent', agent_n=...)` chỉ dùng lại số cũ khi hàng `agents` đó còn, cùng provider, loại `terminal` và không có phiên đang sống cùng khóa; ngược lại cấp số kế tiếp. Nhờ vậy phiên cũ mở lại không ghi đè Agent 1 mới.
+- Giao diện: Agent 0 dùng lại id `agent0` cho tiến trình mới, nên cửa sổ được dựng lại nhờ `gen` (xem `docs/UI-RULES.md`, mục 2b).

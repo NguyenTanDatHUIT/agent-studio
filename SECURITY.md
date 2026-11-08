@@ -123,3 +123,8 @@ Hệ thống lưu lại các bản ghi màn hình (transcripts) để người d
 - **Lọc chuỗi nhạy cảm (Redaction)**: Mã nguồn tự động loại bỏ các mã điều khiển ANSI escape sequences, đồng thời tự động nhận diện và làm mờ (redact) các chuỗi nhạy cảm giống token/bearer/API key (`ghp_*`, `sk-ant-*`, `sk-*`, `Bearer ...`) trước khi ghi vào đĩa.
 - **Cách xóa dữ liệu**: Trong hộp thoại Lịch sử, nút "Xóa" (một phiên) và "Xóa tất cả" gỡ dòng lịch sử và file transcript (API `POST /api/conversations/<id>/delete` và `/api/conversations/delete-all`; cần token + Origin hợp lệ, không có trên bridge của Agent 0, từ chối phiên đang mở, chỉ xóa file nằm trong `transcripts/`, có audit). Xóa thủ công file trong `transcripts/` vẫn an toàn: API sẽ báo bản ghi trống. Phiên do chính Claude/Codex/agy lưu (`~/.claude`, `~/.codex`, `~/.gemini`) không bị Agent Studio xóa.
 - **Cách ly Agent 0 đối với Resume**: Agent 0 tuyệt đối không thể gọi resume qua bridge (yêu cầu xác thực token của dashboard web và cơ chế giới hạn tần suất OPEN_INTERVAL). Mọi hành động resume đều được ghi nhận vào nhật ký kiểm toán.
+
+
+### Cuộc trò chuyện mới
+
+`POST /api/chat/new` (đóng mọi terminal, xóa bảng đánh số agent, mở lại Agent 0) là thao tác ghi: cần Bearer token và Origin hợp lệ như mọi mutation của dashboard, body phải đúng `{"confirm": true}` (thiếu hoặc sai thì từ chối trước khi làm gì), không có trên bridge nên Agent 0 không tự gọi được, và bị từ chối khi còn nhiệm vụ hoặc workflow đang chạy. Có ghi `terminal-audit.jsonl` (`new_chat`, chỉ số lượng, không nội dung). Lịch sử và transcript của các cửa sổ đã đóng được giữ nguyên (xóa riêng bằng chức năng Xóa trong Lịch sử).

@@ -17,6 +17,9 @@ trong lúc có task chạy. SQLite/state chưa có migration framework.
 | agent_env_allow | []; tên biến bổ sung cho worker, không cho test |
 | providers | claude/codex, command và model; không có extra_flags |
 | tests | Map tên identifier sang argv cố định; cần ít nhất một profile cho mỗi task |
+| terminal_idle_notify | true; bật/tắt thông báo [AO] khi terminal tương tác chuyển sang idle |
+| terminal_idle_debounce_seconds | 4.0; số giây im lặng đầu ra (0.1..300) để xác định idle |
+| terminal_idle_rate_limit_seconds | 5.0; khoảng cách tối thiểu giữa 2 thông báo tới Agent 0 |
 
 Command provider chỉ nhận `[absolute_executable]` hoặc
 `[absolute_interpreter, absolute_entrypoint.js/.py]`. Không cho prefix flags

@@ -202,3 +202,9 @@ Dashboard cung cấp nút **"Lịch sử"** trên thanh điều khiển (cạnh 
 - **Hành động**:
   - **"Xem lại"**: Mở modal transcript chỉ đọc. Toàn bộ nội dung hiển thị trong xterm trước đó được lưu và hiển thị kèm mốc thời gian từng dòng. Hỗ trợ phân trang tải thêm các dòng cũ hơn và nút "Sao chép" để lấy nội dung văn bản.
   - **"Mở lại" (Resume)**: Khôi phục phiên làm việc thực tế (`claude --resume <id>` hoặc `codex resume <id>`) vào một cửa sổ terminal mới, tự động định vị lại thư mục dự án và chuyển tới đúng trang cửa sổ. Phiên đang mở được vô hiệu hóa nút mở lại để tránh xung đột hai tiến trình cùng ghi vào một phiên.
+
+
+## Cuộc trò chuyện mới và hộp thoại Thêm CMD
+
+- Nút **"Cuộc trò chuyện mới"** (tab Cửa sổ CMD) mở hộp thoại xác nhận; khi xác nhận: đóng mọi cửa sổ CMD (giữ trong Lịch sử), đánh số agent lại từ 1 và mở lại Agent 0 trống. Bị khóa (có nêu lý do) khi còn nhiệm vụ hoặc workflow đang chạy. Mỗi lần mở công cụ cũng tự bắt đầu từ số 1. Chi tiết: `docs/HUONG-DAN-LICH-SU-CHAT.md` (mục "Cuộc trò chuyện mới") và `docs/KIEN-TRUC-LICH-SU-CHAT.md` (mục 6).
+- Hộp thoại **"Thêm terminal agent"** chỉ còn chọn Agent (và Repo khi có nhiều repo). Ô "Thư mục làm việc" (chọn worktree của task) đã bỏ: terminal luôn mở ở thư mục repo đã chọn. Backend vẫn nhận `task_id` cho nút "Mở terminal" ở chi tiết task.

@@ -93,3 +93,17 @@ Transcript có thể chứa nội dung nhạy cảm, nên bạn có thể xóa b
 - Xóa chỉ gỡ dữ liệu do Agent Studio lưu (`state/transcripts` và bảng lịch sử). Phiên do chính Claude/Codex/agy lưu trong thư mục của chúng (ví dụ `~/.claude`, `~/.codex`, `~/.gemini`) **không bị xóa**, nên bạn vẫn có thể tự dọn ở đó nếu cần.
 - Việc xóa được ghi vào `terminal-audit.jsonl` (chỉ ghi id và loại hành động, không ghi nội dung).
 - Không thể hoàn tác.
+
+
+## Cuộc trò chuyện mới (kết thúc một workflow)
+
+Mỗi lần mở Agent Studio là một cuộc trò chuyện mới: Agent 0 bắt đầu trống và **số hiệu agent bắt đầu lại từ 1** (Claude 1, Codex 1...). Muốn kết thúc giữa chừng và bắt đầu lại mà không phải tắt công cụ:
+
+1. Bấm **"Cuộc trò chuyện mới"** (thanh công cụ của tab Cửa sổ CMD; ở cửa sổ hẹp nằm trong menu bánh răng).
+2. Hộp thoại cho biết sẽ làm gì: đóng N cửa sổ CMD, lưu tất cả vào Lịch sử, đánh số lại từ 1 và mở lại Agent 0 với cuộc trò chuyện trống. Bấm **"Hủy"** thì không có gì xảy ra.
+3. Bấm **"Đóng và mở cuộc trò chuyện mới"** để thực hiện.
+
+Lưu ý:
+- Các cửa sổ đã đóng vẫn nằm trong **Lịch sử** (trạng thái "Đã đóng"), có thể "Xem lại" hoặc "Mở lại". Khi mở lại một phiên cũ trong cuộc trò chuyện mới, nó nhận **số hiệu kế tiếp còn trống**, không chiếm số của agent đang chạy.
+- Nếu còn **nhiệm vụ đang chạy/chờ chạy** hoặc **workflow chưa xong**, nút xác nhận bị khóa và hộp thoại ghi rõ lý do. Hãy chờ xong hoặc hủy chúng trước (vì nhiệm vụ và workflow tham chiếu số hiệu agent). Khi mở công cụ lên, nếu còn việc dở từ lần trước thì số hiệu cũ được giữ nguyên cho đến khi bạn bắt đầu cuộc trò chuyện mới.
+- Các nhiệm vụ đã xong vẫn giữ số hiệu cũ trong danh sách nhiệm vụ; trong Lịch sử mỗi phiên giữ nhãn số hiệu mà nó có lúc đó.
