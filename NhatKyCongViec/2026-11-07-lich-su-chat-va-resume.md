@@ -36,14 +36,12 @@
 - **Codex rollout detection**: Nếu người dùng mở đồng thời nhiều phiên Codex ngoài dashboard trong cùng một giây trên cùng một thư mục, file rollout sinh ra có thể trùng mốc thời gian; tuy nhiên trong môi trường điều phối nội bộ, việc mở phiên có khoảng cách an toàn `OPEN_INTERVAL >= 1.0s` nên rủi ro này được triệt tiêu.
 
 ## 5. Cách quay lại
-- **Tên nhánh**: `feat/chat-history` (được tạo độc lập từ commit tree hiện tại).
-- **Danh sách commit đã thực hiện**:
-  - `23d055b`: `feat(history): bước 1 - bảng conversations và phương thức lưu trữ trong store.py`
-  - `9188295`: `feat(history): bước 2, 3, 4 - ghi bản ghi màn hình, resume thật và API web`
-  - `5ac9226`: `feat(history): bước 5 - UI lịch sử chat và xem lại transcript`
-- **Lệnh so sánh với nhánh chính**:
+- **Tên nhánh ban đầu**: `feat/chat-history` (đã được sao lưu tại tag `backup/chat-history-before-cleanup`).
+- **Nhánh hoàn thiện sạch chuẩn**: `feat/chat-history-clean` (dựa trên baseline `chore/pre-history-baseline`).
+- **Nhật ký hoàn thiện chi tiết**: Xem [Nhật ký 08/11/2026](2026-11-08-hoan-thien-lich-su-chat.md).
+- **Lệnh so sánh với baseline sạch**:
   ```powershell
-  git diff main...feat/chat-history
+  git diff chore/pre-history-baseline...feat/chat-history-clean
   ```
 - **Lệnh quay lại trạng thái trước khi thực hiện**:
   ```powershell

@@ -6,6 +6,8 @@ Mở `Start-AgentStudio.cmd` để thử offline, hoặc chạy
 `.\Start-AgentStudio.cmd C:\AgentControl\myapp.json` cho dự án thật.
 Mở liên kết Dashboard được in trong terminal. Xem [hướng dẫn web app](docs/WEB-APP.md).
 
+**Lịch sử chat & Mở lại phiên (Conversations & Resume):** Tra cứu lịch sử hội thoại của Agent 0 và các terminal agent, xem lại transcript chỉ đọc (lọc sạch ANSI, che giấu secret) và khôi phục ngữ cảnh làm việc thực tế (`claude --resume`, `codex resume`). Xem [Hướng dẫn Lịch sử chat](docs/HUONG-DAN-LICH-SU-CHAT.md) và [Kiến trúc kỹ thuật](docs/KIEN-TRUC-LICH-SU-CHAT.md).
+
 **Tiếp tục chạy thật:** [hướng dẫn CLI thật](docs/LIVE-RUN.md). `Start-LiveCheck.cmd`
 mở repo kiểm tra riêng bằng Codex thật; launcher với config nay chạy web kèm runner.
 Đã xác minh Codex và Claude thật sửa code trên repo calculator thử riêng, chạy
@@ -26,6 +28,7 @@ production hay hệ thống cách ly mã độc. Đọc [SECURITY.md](SECURITY.m
 | `agent_orchestrator/cli.py` | CLI cấu hình, hàng đợi, runner, review, export, phục hồi |
 | `agent_orchestrator/mcp.py` | MCP stdio JSON-RPC, 12 tools (list_agents, list_terminals, read_terminal chỉ đọc; send_to_terminal có xác nhận), bắt tay 2025-03-26 |
 | `agent_orchestrator/store.py` | SQLite WAL, atomic claim, sự kiện trạng thái |
+| `agent_orchestrator/transcripts.py` | Ghi bản ghi màn hình, lọc ANSI, che giấu token, giới hạn 5 MB/100 MB |
 | `agent_orchestrator/gitops.py` | Nhánh/worktree riêng, snapshot qua index tạm, binary patch |
 | `agent_orchestrator/process.py` | Không qua shell, timeout, cancel, log cap, Windows Job Object |
 | `agent_orchestrator/providers.py` | Adapter Claude/Codex, đọc JSON usage thực tế |
