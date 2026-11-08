@@ -23,7 +23,7 @@ from datetime import datetime, timezone, timedelta
 import uuid
 from pathlib import Path
 
-from .config import OrchError
+from .config import OrchError, inside
 from .providers import SESSION
 from .transcripts import append_transcript_entry
 from .store import now
@@ -1130,8 +1130,13 @@ class Terminals:
 
     def read_transcript(self, conv_id, after=0, limit=200):
         conv = self.db.conversation_get(conv_id)
-        log_path = Path(conv['transcript_path'])
-        if not log_path.is_file():
+        raw_path = conv.get('transcript_path', '')
+        try:
+            log_path = Path(raw_path).resolve()
+            trans_root = (self.cfg.state / 'transcripts').resolve()
+            if not inside(log_path, trans_root) or not log_path.is_file():
+                return {'conversation': conv, 'lines': [], 'start': 0, 'next': 0, 'total': 0, 'has_more': False}
+        except (OSError, ValueError, TypeError):
             return {'conversation': conv, 'lines': [], 'start': 0, 'next': 0, 'total': 0, 'has_more': False}
         try:
             with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
