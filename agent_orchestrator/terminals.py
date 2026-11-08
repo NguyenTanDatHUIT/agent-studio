@@ -19,7 +19,7 @@ import threading
 import time
 import unicodedata
 from ctypes import wintypes
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 from pathlib import Path
 
@@ -606,41 +606,63 @@ class AgentView:
         return '  ✓ Lượt xử lý hoàn tất' if kind == 'turn.completed' else f'  · {kind}'
 
 
-def scan_codex_session(started_time, target_cwd, timeout=12.0):
+def scan_codex_session(started_time, target_cwd, timeout=12.0, codex_home=None):
     end = time.time() + timeout
-    sessions_root = Path.home() / '.codex' / 'sessions'
+    sessions_root = Path(codex_home) / 'sessions' if codex_home else (Path.home() / '.codex' / 'sessions')
     try:
         norm_target = str(Path(target_cwd).resolve()).lower()
     except Exception:
         return None
-    while time.time() < end:
+    backoffs = [0.2, 0.4, 0.8]
+    while True:
         try:
             if sessions_root.is_dir():
-                now_dt = datetime.now()
-                day_dir = sessions_root / f"{now_dt.year}" / f"{now_dt.month:02d}" / f"{now_dt.day:02d}"
-                if day_dir.is_dir():
-                    for f in sorted(day_dir.glob('rollout-*.jsonl*'), key=lambda p: p.stat().st_mtime, reverse=True):
+                now_local = datetime.now()
+                now_utc = datetime.now(timezone.utc)
+                days = set()
+                for base_dt in (now_local, now_utc):
+                    for delta in (-1, 0, 1):
+                        d = base_dt + timedelta(days=delta)
+                        days.add((d.year, d.month, d.day))
+                candidates = []
+                for year, month, day in days:
+                    day_dir = sessions_root / f"{year}" / f"{month:02d}" / f"{day:02d}"
+                    if not day_dir.is_dir():
+                        continue
+                    for f in day_dir.glob('rollout-*.jsonl*'):
+                        if f.suffix == '.zst':
+                            continue
                         try:
                             stat = f.stat()
-                            if stat.st_mtime >= started_time - 2.0:
-                                if f.suffix == '.zst':
-                                    continue
+                            if stat.st_mtime >= started_time - 5.0:
                                 with open(f, 'r', encoding='utf-8', errors='replace') as fh:
                                     first_line = fh.readline()
                                 if first_line:
                                     meta = json.loads(first_line)
                                     if meta.get('type') == 'session_meta':
                                         payload = meta.get('payload', {})
-                                        fcwd = str(Path(payload.get('cwd', '')).resolve()).lower()
+                                        raw_cwd = payload.get('cwd', '')
+                                        try:
+                                            fcwd = str(Path(raw_cwd).resolve()).lower()
+                                        except Exception:
+                                            continue
                                         if fcwd == norm_target:
                                             sid = payload.get('session_id') or payload.get('id')
                                             if sid and isinstance(sid, str) and SESSION.fullmatch(sid):
-                                                return sid
+                                                candidates.append((stat.st_mtime, sid))
                         except (OSError, ValueError):
                             continue
+                if candidates:
+                    candidates.sort(key=lambda c: c[0], reverse=True)
+                    return candidates[0][1]
         except Exception:
             pass
-        time.sleep(0.5)
+        now_time = time.time()
+        if now_time >= end:
+            break
+        delay = backoffs.pop(0) if backoffs else 0.8
+        sleep_dur = min(delay, max(0.01, end - now_time))
+        time.sleep(sleep_dur)
     return None
 
 

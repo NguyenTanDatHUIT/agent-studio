@@ -1,10 +1,12 @@
 """Tests for chat history and terminal resume features."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -495,6 +497,63 @@ class TestTerminalResumeAndTranscripts(unittest.TestCase):
         self.assertTrue(log_file.exists())
         text = log_file.read_text(encoding='utf-8', errors='replace')
         self.assertIn('AutoTitleText', text)
+
+    def test_scan_codex_session_midnight_cross_day(self):
+        from agent_orchestrator.terminals import scan_codex_session
+        import datetime
+        from datetime import timedelta
+
+        codex_home = self.tmp / '.codex'
+        now_dt = datetime.datetime.now()
+        yesterday_dt = now_dt - timedelta(days=1)
+        yesterday_dir = codex_home / 'sessions' / f"{yesterday_dt.year}" / f"{yesterday_dt.month:02d}" / f"{yesterday_dt.day:02d}"
+        yesterday_dir.mkdir(parents=True, exist_ok=True)
+
+        rollout_file = yesterday_dir / 'rollout-midnight.jsonl'
+        sess_id = '018f1234-5678-7000-8000-000000000001'
+        meta = {
+            'type': 'session_meta',
+            'payload': {
+                'id': sess_id,
+                'cwd': str(self.repo)
+            }
+        }
+        rollout_file.write_text(json.dumps(meta) + '\n', encoding='utf-8')
+        t_started = time.time()
+        os.utime(rollout_file, (t_started - 1.0, t_started - 1.0))
+
+        found = scan_codex_session(t_started, str(self.repo), timeout=1.0, codex_home=codex_home)
+        self.assertEqual(found, sess_id)
+
+    def test_scan_codex_session_multiple_sessions_picks_newest(self):
+        from agent_orchestrator.terminals import scan_codex_session
+        import datetime
+
+        codex_home = self.tmp / '.codex'
+        now_dt = datetime.datetime.now()
+        today_dir = codex_home / 'sessions' / f"{now_dt.year}" / f"{now_dt.month:02d}" / f"{now_dt.day:02d}"
+        today_dir.mkdir(parents=True, exist_ok=True)
+
+        t_base = time.time()
+        old_file = today_dir / 'rollout-1.jsonl'
+        old_id = '018f1234-5678-7000-8000-000000000011'
+        old_file.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': old_id, 'cwd': str(self.repo)}}) + '\n')
+        os.utime(old_file, (t_base, t_base))
+
+        new_file = today_dir / 'rollout-2.jsonl'
+        new_id = '018f1234-5678-7000-8000-000000000022'
+        new_file.write_text(json.dumps({'type': 'session_meta', 'payload': {'id': new_id, 'cwd': str(self.repo)}}) + '\n')
+        os.utime(new_file, (t_base + 3.0, t_base + 3.0))
+
+        found = scan_codex_session(t_base, str(self.repo), timeout=1.0, codex_home=codex_home)
+        self.assertEqual(found, new_id)
+
+    def test_scan_codex_session_missing_fallback(self):
+        from agent_orchestrator.terminals import scan_codex_session
+
+        codex_home = self.tmp / '.codex-nonexistent'
+        found = scan_codex_session(time.time(), str(self.repo), timeout=0.3, codex_home=codex_home)
+        self.assertIsNone(found)
 
 
 
