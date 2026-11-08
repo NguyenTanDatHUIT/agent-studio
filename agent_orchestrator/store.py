@@ -46,12 +46,34 @@ class Store:
                 -- Short plain-text notices for Agent 0 (ids and statuses only, never worker text).
                 CREATE TABLE IF NOT EXISTS notices(
                   id INTEGER PRIMARY KEY AUTOINCREMENT, time TEXT NOT NULL, text TEXT NOT NULL);
+                -- Conversation history for Agent 0, terminal agents, and worker tasks.
+                CREATE TABLE IF NOT EXISTS conversations(
+                  id TEXT PRIMARY KEY, terminal_key TEXT, provider TEXT NOT NULL,
+                  agent_n INTEGER, kind TEXT NOT NULL, cwd TEXT NOT NULL,
+                  task_id TEXT, session_id TEXT, title TEXT NOT NULL,
+                  started TEXT NOT NULL, last_active TEXT NOT NULL,
+                  status TEXT NOT NULL, transcript_path TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS idx_conversations_started ON conversations(started DESC);
+                CREATE INDEX IF NOT EXISTS idx_conversations_provider ON conversations(provider);
             ''')
             if 'agent' not in {r['name'] for r in db.execute('PRAGMA table_info(tasks)')}:
                 try:
                     db.execute('ALTER TABLE tasks ADD COLUMN agent INTEGER')
                 except sqlite3.OperationalError:
                     pass  # another process migrated first
+            conv_cols = {r['name'] for r in db.execute('PRAGMA table_info(conversations)')}
+            for col, col_type in [
+                ('terminal_key', 'TEXT'), ('provider', 'TEXT NOT NULL DEFAULT ""'), ('agent_n', 'INTEGER'),
+                ('kind', 'TEXT NOT NULL DEFAULT ""'), ('cwd', 'TEXT NOT NULL DEFAULT ""'), ('task_id', 'TEXT'),
+                ('session_id', 'TEXT'), ('title', 'TEXT NOT NULL DEFAULT ""'), ('started', 'TEXT NOT NULL DEFAULT ""'),
+                ('last_active', 'TEXT NOT NULL DEFAULT ""'), ('status', 'TEXT NOT NULL DEFAULT ""'),
+                ('transcript_path', 'TEXT NOT NULL DEFAULT ""')
+            ]:
+                if col not in conv_cols and conv_cols:
+                    try:
+                        db.execute(f'ALTER TABLE conversations ADD COLUMN {col} {col_type}')
+                    except sqlite3.OperationalError:
+                        pass
 
     @contextmanager
     def connect(self):
@@ -251,3 +273,52 @@ class Store:
         with self.connect() as db:
             rows = db.execute("SELECT id,agent,status,payload FROM tasks WHERE agent IS NOT NULL AND status IN ('queued','running')").fetchall()
         return [{'task_id': r['id'], 'agent': r['agent'], 'status': r['status'], 'round': json.loads(r['payload']).get('round', 1)} for r in rows]
+
+    # ---- conversation history --------------------------------------------------------------------------
+    def conversation_add(self, conv):
+        with self.connect() as db:
+            db.execute('''
+                INSERT INTO conversations(id, terminal_key, provider, agent_n, kind, cwd, task_id,
+                                          session_id, title, started, last_active, status, transcript_path)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ''', (
+                conv['id'], conv.get('terminal_key'), conv['provider'], conv.get('agent_n'),
+                conv['kind'], str(conv['cwd']), conv.get('task_id'), conv.get('session_id'),
+                conv.get('title', 'Phiên mới'), conv.get('started', now()),
+                conv.get('last_active', now()), conv.get('status', 'active'),
+                str(conv.get('transcript_path', ''))
+            ))
+
+    def conversation_update(self, cid, **fields):
+        allowed = {'session_id', 'title', 'last_active', 'status', 'transcript_path', 'terminal_key'}
+        if set(fields) - allowed:
+            raise OrchError("Unsupported conversation field")
+        if fields:
+            with self.connect() as db:
+                db.execute('UPDATE conversations SET ' + ','.join(f'{k}=?' for k in fields) + ' WHERE id=?',
+                           (*fields.values(), cid))
+
+    def conversation_get(self, cid):
+        with self.connect() as db:
+            row = db.execute('SELECT * FROM conversations WHERE id=?', (cid,)).fetchone()
+        if row is None:
+            raise OrchError("Unknown conversation")
+        return dict(row)
+
+    def conversation_list(self, limit=50, provider=None, q=None):
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise OrchError("limit must be 1..200")
+        clauses = []
+        params = []
+        if provider:
+            clauses.append('provider=?')
+            params.append(provider)
+        if q:
+            clauses.append('(title LIKE ? OR id LIKE ?)')
+            params.append(f'%{q}%')
+            params.append(f'%{q}%')
+        where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
+        sql = f'SELECT * FROM conversations{where} ORDER BY started DESC LIMIT ?'
+        params.append(limit)
+        with self.connect() as db:
+            return [dict(r) for r in db.execute(sql, params)]
