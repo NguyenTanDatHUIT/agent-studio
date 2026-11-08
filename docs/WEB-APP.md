@@ -208,3 +208,16 @@ Dashboard cung cấp nút **"Lịch sử"** trên thanh điều khiển (cạnh 
 
 - Nút **"Cuộc trò chuyện mới"** (tab Cửa sổ CMD) mở hộp thoại xác nhận; khi xác nhận: đóng mọi cửa sổ CMD (giữ trong Lịch sử), đánh số agent lại từ 1 và mở lại Agent 0 trống. Bị khóa (có nêu lý do) khi còn nhiệm vụ hoặc workflow đang chạy. Mỗi lần mở công cụ cũng tự bắt đầu từ số 1. Chi tiết: `docs/HUONG-DAN-LICH-SU-CHAT.md` (mục "Cuộc trò chuyện mới") và `docs/KIEN-TRUC-LICH-SU-CHAT.md` (mục 6).
 - Hộp thoại **"Thêm terminal agent"** chỉ còn chọn Agent (và Repo khi có nhiều repo). Ô "Thư mục làm việc" (chọn worktree của task) đã bỏ: terminal luôn mở ở thư mục repo đã chọn. Backend vẫn nhận `task_id` cho nút "Mở terminal" ở chi tiết task.
+
+
+## Trình duyệt dùng để mở dashboard
+
+Khi chạy bằng `Start-AgentStudio.cmd` (hoặc lối tắt trên desktop), công cụ mở dashboard bằng **Google Chrome** nếu đã cài (tìm trong `Program Files`, `Program Files (x86)`, `%LocalAppData%` và registry App Paths); nếu không có Chrome thì dùng trình duyệt mặc định của Windows. Đổi bằng biến môi trường `AGENT_STUDIO_BROWSER`:
+
+| Giá trị | Kết quả |
+|---|---|
+| (không đặt) hoặc `chrome` | Chrome nếu có, không thì trình duyệt mặc định |
+| `default` | Luôn dùng trình duyệt mặc định của Windows (ví dụ Edge) |
+| `C:/Program Files/Mozilla Firefox/firefox.exe` (ví dụ) | Dùng đúng file đó (phải là đường dẫn tuyệt đối tới một file `.exe` có thật) |
+
+Giá trị không hợp lệ (đường dẫn tương đối, không phải `.exe`, không tồn tại) không chạy gì cả mà quay về trình duyệt mặc định. Địa chỉ có token được truyền như một đối số duy nhất, không qua shell. Mã nguồn: `agent_orchestrator/browser.py`.

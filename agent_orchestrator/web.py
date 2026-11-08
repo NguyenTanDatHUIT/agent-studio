@@ -521,8 +521,9 @@ def serve_web(engine, port=8765, run_workers=False, open_browser=False):
             print(f'Dashboard: {server.origin}/#token={server.token}', flush=True)
             print('Local only. ' + ('Managed runners enabled.' if run_workers else 'Workers run separately.') + ' Ctrl+C to stop.', flush=True)
             if open_browser:
-                import threading, webbrowser
-                threading.Timer(.7, webbrowser.open, (f'{server.origin}/#token={server.token}',)).start()
+                import threading
+                from .browser import open_dashboard
+                threading.Timer(.7, open_dashboard, (f'{server.origin}/#token={server.token}',)).start()
             server.serve_forever(poll_interval=.25)
         finally:
             server.terminals.close()
