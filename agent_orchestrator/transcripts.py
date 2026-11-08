@@ -16,8 +16,8 @@ from pathlib import Path
 MAX_TRANSCRIPT_FILE_SIZE = 5 * 1024 * 1024
 # Truncation target when a file exceeds MAX_TRANSCRIPT_FILE_SIZE: retain last 4 MB
 RETAIN_TRANSCRIPT_FILE_SIZE = 4 * 1024 * 1024
-# Max total size of all transcripts in the directory: 50 MB
-MAX_TRANSCRIPTS_TOTAL_SIZE = 50 * 1024 * 1024
+# Max total size of all transcripts in the directory: 100 MB
+MAX_TRANSCRIPTS_TOTAL_SIZE = 100 * 1024 * 1024
 
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]')
 CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f-\x9f]')
