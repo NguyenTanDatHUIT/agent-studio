@@ -92,7 +92,7 @@ mới bắt đầu từ commit gốc với phiên ephemeral như trước.
 
 Hệ thống ghi nhận lịch sử cho cả hai lớp:
 - **Lớp A — Khôi phục ngữ cảnh thật (Resume)**: Áp dụng cho các CLI có hỗ trợ resume chính thức (`claude --resume <session_id>` với `--session-id <uuid>` lúc tạo mới, và `codex resume <session_id>` qua quét file rollout JSONL của Codex).
-- **Lớp B — Xem lại bản ghi màn hình (Transcript)**: Áp dụng cho mọi terminal và worker (kể cả Antigravity/`agy`). Output hiển thị qua PTY được ghi nối tiếp vào `<state_dir>/transcripts/<session_id>.txt` với mốc thời gian, tự động lọc ANSI escape sequences và che giấu các chuỗi nhạy cảm (token/API keys).
+- **Lớp B — Xem lại bản ghi màn hình (Transcript)**: Áp dụng cho mọi terminal và worker (kể cả Antigravity/`agy`). Output hiển thị qua PTY được ghi nối tiếp vào `<state_dir>/transcripts/<conversation_id>.log` với mốc thời gian, tự động lọc ANSI escape sequences và che giấu các chuỗi nhạy cảm (token/API keys).
 
 Bảng `conversations` trong SQLite lưu: `id`, `session_id`, `kind` (`agent` | `worker` | `agent0`), `provider`, `agent_number`, `title`, `repo`, `task_id`, `cwd`, `status` (`active` | `exited` | `failed`), `created_at`, `updated_at`, `meta_json`.
 

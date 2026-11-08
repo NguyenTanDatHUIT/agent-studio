@@ -118,8 +118,8 @@ agent làm tiếp. Đánh đổi cần biết:
 
 Hệ thống lưu lại các bản ghi màn hình (transcripts) để người dùng có thể xem lại toàn bộ tiến trình trao đổi của các terminal agent và Agent 0:
 
-- **Vị trí lưu trữ**: Nằm tại `<state_dir>/transcripts/<session_id>.txt`. Chỉ tài khoản người dùng Windows chạy Orchestrator có quyền đọc/ghi.
+- **Vị trí lưu trữ**: Nằm tại `<state_dir>/transcripts/<conversation_id>.log`. Chỉ tài khoản người dùng Windows chạy Orchestrator có quyền đọc/ghi.
 - **Giới hạn kích thước**: Mỗi file transcript tối đa 5 MB (tự động cắt các dòng cũ nhất khi vượt ngưỡng). Tổng dung lượng thư mục transcripts được giới hạn ở 100 MB; khi đạt mức này, các file transcript cũ nhất sẽ tự động được thu hồi.
 - **Lọc chuỗi nhạy cảm (Redaction)**: Mã nguồn tự động loại bỏ các mã điều khiển ANSI escape sequences, đồng thời tự động nhận diện và làm mờ (redact) các chuỗi nhạy cảm giống token/bearer/API key (`ghp_*`, `sk-ant-*`, `sk-*`, `Bearer ...`) trước khi ghi vào đĩa.
-- **Cách xóa dữ liệu**: Người dùng có thể xóa thủ công toàn bộ thư mục `transcripts/` hoặc các file cụ thể mà không làm hỏng cơ sở dữ liệu `conversations` (API sẽ báo bản ghi trống nếu file không tồn tại).
+- **Cách xóa dữ liệu**: Trong hộp thoại Lịch sử, nút "Xóa" (một phiên) và "Xóa tất cả" gỡ dòng lịch sử và file transcript (API `POST /api/conversations/<id>/delete` và `/api/conversations/delete-all`; cần token + Origin hợp lệ, không có trên bridge của Agent 0, từ chối phiên đang mở, chỉ xóa file nằm trong `transcripts/`, có audit). Xóa thủ công file trong `transcripts/` vẫn an toàn: API sẽ báo bản ghi trống. Phiên do chính Claude/Codex/agy lưu (`~/.claude`, `~/.codex`, `~/.gemini`) không bị Agent Studio xóa.
 - **Cách ly Agent 0 đối với Resume**: Agent 0 tuyệt đối không thể gọi resume qua bridge (yêu cầu xác thực token của dashboard web và cơ chế giới hạn tần suất OPEN_INTERVAL). Mọi hành động resume đều được ghi nhận vào nhật ký kiểm toán.

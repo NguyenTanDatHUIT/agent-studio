@@ -62,7 +62,8 @@ Mỗi phiên hội thoại cung cấp 2 hành động khác nhau tùy theo nhu c
 - **Cách dùng**: Nhấp nút **"Mở lại"**.
   - Hệ thống tự động mở một cửa sổ terminal mới trên bàn làm việc.
   - Chuyển đúng vào thư mục dự án ban đầu của phiên đó.
-  - Truyền tham số resume chính thức (`--resume <session_id>` cho Claude, `codex resume <session_id>` cho Codex).
+  - Truyền tham số resume chính thức (`--resume <session_id>` cho Claude và Agent 0, `codex resume <session_id>` cho Codex, `--conversation <id>` cho Antigravity).
+  - Với Antigravity, id hội thoại chỉ xuất hiện sau **tin nhắn đầu tiên** bạn gửi (agy tạo file hội thoại lúc đó). Nếu đóng terminal trước khi gửi gì, phiên đó chỉ có thể "Xem lại".
   - Tự động cuộn trang bàn làm việc tới vị trí cửa sổ mới.
 - **Đối tượng hỗ trợ**: Các CLI có cơ chế lưu trữ phiên chính thức (Claude Code, OpenAI Codex).
 
@@ -80,3 +81,15 @@ Mỗi phiên hội thoại cung cấp 2 hành động khác nhau tùy theo nhu c
 3. **Giới hạn dung lượng và tự động cắt tỉa (Retention Policy)**:
    - Mỗi file transcript có giới hạn tối đa là **5 MB**. Nếu log vượt quá 5 MB, phần đầu của file sẽ tự động được lược bỏ để giữ lại 4 MB dữ liệu gần nhất, kèm dòng thông báo: `[... noi dung cu da duoc luoc bo de giu gioi han 5 MB ...]`.
    - Tổng dung lượng thư mục transcripts trên máy của bạn được giới hạn ở **100 MB**. Khi đạt ngưỡng này, hệ thống sẽ tự động thu hồi các file transcript cũ nhất theo thời gian sửa đổi.
+
+
+## Xóa lịch sử
+
+Transcript có thể chứa nội dung nhạy cảm, nên bạn có thể xóa bất cứ lúc nào:
+
+- **Xóa một phiên**: nhấn nút **"Xóa"** ở cuối dòng. Hệ thống hỏi xác nhận, rồi xóa dòng trong lịch sử và file transcript tương ứng.
+- **Xóa tất cả**: nhấn **"Xóa tất cả"** trên thanh công cụ của hộp thoại Lịch sử (có hỏi xác nhận).
+- Phiên **đang mở** trong terminal không bị xóa; hãy đóng terminal trước (nút "Xóa" bị vô hiệu hóa với phiên đang mở).
+- Xóa chỉ gỡ dữ liệu do Agent Studio lưu (`state/transcripts` và bảng lịch sử). Phiên do chính Claude/Codex/agy lưu trong thư mục của chúng (ví dụ `~/.claude`, `~/.codex`, `~/.gemini`) **không bị xóa**, nên bạn vẫn có thể tự dọn ở đó nếu cần.
+- Việc xóa được ghi vào `terminal-audit.jsonl` (chỉ ghi id và loại hành động, không ghi nội dung).
+- Không thể hoàn tác.

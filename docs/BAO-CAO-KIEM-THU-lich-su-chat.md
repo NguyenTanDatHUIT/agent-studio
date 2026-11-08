@@ -93,7 +93,25 @@ Mô phỏng áp lực cao với 15 luồng terminal ghi đồng thời dữ li�
 | 2 | **Nhóm B**: Bản ghi màn hình & Transcripts | 6 | **PASS** | Lọc sạch ANSI, che giấu token, kiểm soát kích thước chuẩn xác. |
 | 3 | **Nhóm C**: Khôi phục phiên (Resume) | 9 | **PASS** | Regex an toàn, xử lý quét Codex đa ngày và timezone. |
 | 4 | **Nhóm D**: Web API & UI Dashboard | 7 | **PASS** | API phân trang tốt, UI responsive, ngăn chặn XSS và CSRF. |
-| 5 | **Nhóm E**: Tích hợp CLI thật (Claude, agy) | 2 | **PASS** | Claude Code và Antigravity kiểm thử thành công trên ConPTY. |
+| 5 | **Nhóm E**: Claude Code thật, có kiểm tra nhớ ngữ cảnh | 1 | **PASS** | Nhớ mã `TANGO-4417` sau resume (xem 2b). |
+| 5b | **Nhóm E**: Agent 0 thật, có kiểm tra nhớ ngữ cảnh | 1 | **PASS** | Nhớ mã `KILO-8820` sau resume. |
+| 5c | **Nhóm E**: Antigravity thật, bắt id + resume + nhớ ngữ cảnh | 1 | **PASS** | Bắt được id từ file `.db`, resume nhớ mã `ZULU-3391`. |
 | 6 | **Nhóm E (Codex)**: Tích hợp CLI thật | 1 | **CHƯA KIỂM TRA THẬT** | Ghi nhận trung thực: lỗi tài khoản ChatGPT của Codex CLI. |
 | 7 | **Nhóm F**: Thử nghiệm tải và độ bền | 7 | **PASS** | 703 lines/s, đọc 0.42ms, chịu lỗi crash hoàn hảo. |
-| **TỔNG CỘNG** | **Toàn bộ hệ thống** | **38** | **37 PASS, 1 CHƯA KIỂM TRA THẬT** | **SẴN SÀNG NGHIỆM THU** |
+| 8 | **Nhóm G**: Review bảo mật | (xem `SECURITY-REVIEW-lich-su-chat.md`) | **XONG** | 8 mối đe dọa; bổ sung API xóa và test ở bản cập nhật 2026-11-08. |
+| 9 | **Xóa lịch sử** (API + UI) | 5 Python + 1 UI | **PASS** | Xóa file đúng chỗ, không đụng file ngoài `transcripts`, từ chối phiên đang mở, cần xác nhận, bridge không gọi được. |
+| 10 | **Dò id agy** (`scan_agy_session`) | 5 | **PASS** | File mới, file cũ, id đã dùng, thứ tự, file đến muộn/đóng terminal. |
+| **CHƯA KIỂM TRA THẬT** | Codex | - | - | Gói ChatGPT Plus đã hết nên không thể thử. Phần dò id Codex chỉ được kiểm tra bằng thư mục giả. |
+
+Ghi chú: số ca trong bảng là số hàm test viết riêng cho từng nhóm; tổng số test Python của dự án là con số do `unittest discover` báo (xem nhật ký 2026-11-08), thời gian chạy dao động từ khoảng 270 đến 480 giây tùy tải máy.
+
+### 2b. Bằng chứng Nhóm E (kiểm tra nhớ ngữ cảnh thật)
+Cách làm (script chạy qua `Terminals` + ConPTY, repo/state tạm, hộp thoại tin cậy thư mục được xác nhận bằng phím): gửi câu "hãy nhớ mã X, chỉ trả lời OK" → đóng terminal → kiểm tra `session_id` đã lưu và transcript có mã → `resume_conversation` → hỏi "mã tôi bảo nhớ là gì?" → xác nhận câu trả lời là mã X.
+
+| CLI | Mã thử | `session_id` lưu | Trả lời sau resume | Transcript có mã |
+|---|---|:---:|---|:---:|
+| Claude Code 2.1.319 | TANGO-4417 | có (`--session-id`) | `TANGO-4417` | có |
+| Agent 0 (Claude + MCP) | KILO-8820 | có | `KILO-8820` | có |
+| Antigravity 1.5.3 | ZULU-3391 | có (dò từ file `.db`) | `ZULU-3391` | (không đo) |
+
+Lưu ý: mỗi CLI chỉ chạy một lần, trên tài khoản của chủ máy; các script nằm ở thư mục tạm, chưa đưa vào repo.

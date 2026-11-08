@@ -135,7 +135,15 @@ Codex lưu trữ phiên trong các file JSONL tại `~/.codex/sessions/<YYYY>/<M
 4. **Retry Backoff**: Nếu chưa tìm thấy, hàm thử lại với chuỗi chờ lũy tiến `[200ms, 400ms, 800ms]` trong giới hạn timeout.
 
 ### 4.3. Google Antigravity (`agy`)
-Antigravity CLI hiện tại được hỗ trợ đầy đủ ở **Lớp B** (Ghi và hiển thị transcript). Bản ghi màn hình lưu trữ 100% nội dung qua PTY hook. Khi CLI hỗ trợ cờ lưu phiên chính thức, cờ `--conversation <id>` sẽ được liên kết vào Lớp A.
+Antigravity hỗ trợ cả **Lớp B** (transcript) và **Lớp A** (resume qua `--conversation <id>`), đã kiểm tra với `agy.exe` thật.
+
+agy không cho đặt id lúc mở, nhưng lưu mỗi hội thoại thành file `<id>.db` trong `~/.gemini/antigravity-cli/conversations/` (tạo ở **tin nhắn đầu tiên**). `scan_agy_session()` dò id như sau:
+1. Chỉ xét file `*.db` có tên khớp regex `SESSION`, được **tạo sau** lúc terminal mở (thời gian tạo file, `st_ctime` trên Windows; dung sai 2 giây).
+2. Bỏ qua id đã gán cho một mục lịch sử agy khác.
+3. Nếu nhiều file thỏa mãn, chọn file **tạo sớm nhất**; việc gán id được tuần tự hóa bằng `agy_claim` để hai terminal agy mở sát nhau không lấy trùng.
+4. Thăm dò mỗi 2 giây, tối đa 15 phút hoặc đến khi terminal đóng (người dùng có thể gõ tin nhắn đầu muộn).
+
+Hạn chế đã biết: agy không có thông tin `cwd` trong tên file nên không thể đối chiếu thư mục như Codex. Nếu bạn chạy agy **ngoài** Agent Studio đúng lúc, file mới của nó có thể bị nhận nhầm. Vì vậy chỉ nên coi id là chắc chắn khi chỉ có một agy mới được tạo trong khoảng thời gian đó.
 
 ---
 
@@ -146,5 +154,6 @@ Antigravity CLI hiện tại được hỗ trợ đầy đủ ở **Lớp B** (G
 3. **Che giấu chuỗi nhạy cảm (Token Redaction)**: Tự động xóa sạch mã ANSI escape và làm mờ các token `sk-ant-*`, `sk-*`, `ghp_*`, `Bearer ...` trước khi ghi đĩa.
 4. **Phân quyền và bảo vệ API**:
    - Tất cả endpoint `/api/conversations*` yêu cầu Bearer token xác thực và Origin hợp lệ.
-   - Tuyệt đối cách ly Agent 0: MCP bridge không có quyền gọi API resume.
+   - Tuyệt đối cách ly Agent 0: MCP bridge không có quyền gọi API resume hay xóa.
+   - Xóa: `POST /api/conversations/<id>/delete` (body rỗng) và `POST /api/conversations/delete-all` (body đúng `{"confirm": true}`). Trả `{"deleted": n, "files_removed": m}` (xóa tất cả có thêm `kept_open`). Từ chối với phiên đang mở. File chỉ bị xóa nếu nằm trong `state/transcripts`, không phải symlink; đường dẫn lưu trong DB không được tin tưởng. Có ghi audit (`delete`, `delete_all`).
    - Cấm UNC path và symlink; kiểm tra CWD nghiêm ngặt qua danh sách repo hoặc worktree hợp lệ.
