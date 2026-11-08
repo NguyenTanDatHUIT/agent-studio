@@ -203,6 +203,32 @@ class Handler(BaseHTTPRequestHandler):
                                    'providers': self.server.runners.snapshot() if self.server.runners else {}})
         if path == '/api/terminals' and not mutation:
             return self.reply(200, self.server.terminals.snapshot())
+        if path == '/api/conversations' and not mutation:
+            try:
+                limit = int(query.get('limit', ['50'])[0])
+            except (ValueError, TypeError):
+                raise OrchError("limit must be 1..200")
+            provider = query.get('provider', [None])[0] or None
+            q = query.get('q', [None])[0] or None
+            return self.reply(200, e.db.conversation_list(limit=limit, provider=provider, q=q))
+        if path.startswith('/api/conversations/'):
+            parts = path.strip('/').split('/')
+            if len(parts) == 4 and parts[1] == 'conversations' and parts[3] == 'transcript' and not mutation:
+                cid = parts[2]
+                try:
+                    after = int(query.get('after', ['0'])[0])
+                    limit = int(query.get('limit', ['200'])[0])
+                except (ValueError, TypeError):
+                    raise OrchError("Invalid after or limit parameter")
+                return self.reply(200, self.server.terminals.read_transcript(cid, after=after, limit=limit))
+            if len(parts) == 4 and parts[1] == 'conversations' and parts[3] == 'resume' and mutation:
+                cid = parts[2]
+                cols = int(body.get('cols', 100)) if body else 100
+                rows = int(body.get('rows', 30)) if body else 30
+                return self.reply(200, self.server.terminals.resume_conversation(cid, cols=cols, rows=rows))
+            if len(parts) == 3 and parts[1] == 'conversations' and not mutation:
+                cid = parts[2]
+                return self.reply(200, e.db.conversation_get(cid))
         if path == '/api/terminals/open' and mutation:
             if not set(body) <= {'kind', 'provider', 'task_id', 'cols', 'rows', 'repo'} or 'kind' not in body:
                 raise OrchError('Expected kind, optional provider, task_id, repo, cols and rows')

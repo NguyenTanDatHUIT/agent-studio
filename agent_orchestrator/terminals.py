@@ -25,6 +25,7 @@ from pathlib import Path
 
 from .config import OrchError
 from .providers import SESSION
+from .transcripts import append_transcript_entry
 from .store import now
 
 BUFFER_LIMIT = 1_000_000
@@ -189,6 +190,11 @@ class Session:
                     del self.buffer[:drop]
                     self.base += drop
                 self.cond.notify_all()
+            if self.transcript_path:
+                try:
+                    append_transcript_entry(self.transcript_path, raw_chunk.decode('utf-8', 'replace'))
+                except Exception:
+                    pass
 
     def watch(self):
         k = self.k
@@ -318,6 +324,11 @@ class AgentView:
                 self.base += drop
             self.last_emit = time.time()
             self.cond.notify_all()
+        if getattr(self, 'transcript_path', None):
+            try:
+                append_transcript_entry(self.transcript_path, text)
+            except Exception:
+                pass
 
     def finish(self, code):
         with self.cond:
@@ -406,6 +417,32 @@ class AgentView:
         self.offsets, self.partial = {}, {}
         self.task_id, self.round = task['id'], task.get('round', 1)
         self.cwd = str(self.state_dir / 'worktrees' / task['id'])
+        conv_id = f"task-{task['id']}-r{self.round}"
+        self.conversation_id = conv_id
+        transcript_file = self.state_dir / 'transcripts' / f"{conv_id}.log"
+        self.transcript_path = transcript_file
+        try:
+            try:
+                self.db.conversation_get(conv_id)
+            except OrchError:
+                first_prompt = (task.get('prompt') or '').strip().split('\n')[0][:80]
+                self.db.conversation_add({
+                    'id': conv_id,
+                    'terminal_key': self.id,
+                    'provider': self.provider,
+                    'agent_n': self.agent,
+                    'kind': 'worker',
+                    'cwd': self.cwd,
+                    'task_id': self.task_id,
+                    'session_id': task.get('session_id') or (self.db.agent_get(self.agent) or {}).get('session_id'),
+                    'title': f"Agent {self.agent} · {first_prompt}" if first_prompt else self.title,
+                    'started': datetime.now(timezone.utc).isoformat(),
+                    'last_active': datetime.now(timezone.utc).isoformat(),
+                    'status': task['status'],
+                    'transcript_path': str(transcript_file)
+                })
+        except Exception:
+            pass
         self.segment_done, self.idle, self.hinted, self.final_seen, self.started = False, False, False, False, time.time()
         self.emit(f'━━ {self.title} · task {task["id"][:8]}' + (f' · vòng {self.round}' if self.round > 1 else '') + ' ━━', '1;36')
         if self.round > 1:
@@ -427,6 +464,15 @@ class AgentView:
             if task['status'] == 'awaiting_review':
                 self.emit('Mở tab Nhiệm vụ để xem diff, bằng chứng test và duyệt.', '2')
             self.emit(f'⏸ {self.title} sẵn sàng nhận việc tiếp. Nhớ ngữ cảnh: {"bật" if self.remember else "tắt"}.', '2')
+            if getattr(self, 'conversation_id', None):
+                try:
+                    sess = task.get('session_id') or (self.db.agent_get(self.agent) or {}).get('session_id')
+                    fields = {'status': task['status'], 'last_active': datetime.now(timezone.utc).isoformat()}
+                    if sess:
+                        fields['session_id'] = sess
+                    self.db.conversation_update(self.conversation_id, **fields)
+                except Exception:
+                    pass
             return True
         quiet = time.time() - self.last_emit
         if task['status'] == 'queued' and not self.hinted and time.time() - self.started > 8:
@@ -558,6 +604,44 @@ class AgentView:
         if kind in {'thread.started', 'turn.started'} or not kind:
             return None
         return '  ✓ Lượt xử lý hoàn tất' if kind == 'turn.completed' else f'  · {kind}'
+
+
+def scan_codex_session(started_time, target_cwd, timeout=12.0):
+    end = time.time() + timeout
+    sessions_root = Path.home() / '.codex' / 'sessions'
+    try:
+        norm_target = str(Path(target_cwd).resolve()).lower()
+    except Exception:
+        return None
+    while time.time() < end:
+        try:
+            if sessions_root.is_dir():
+                now_dt = datetime.now()
+                day_dir = sessions_root / f"{now_dt.year}" / f"{now_dt.month:02d}" / f"{now_dt.day:02d}"
+                if day_dir.is_dir():
+                    for f in sorted(day_dir.glob('rollout-*.jsonl*'), key=lambda p: p.stat().st_mtime, reverse=True):
+                        try:
+                            stat = f.stat()
+                            if stat.st_mtime >= started_time - 2.0:
+                                if f.suffix == '.zst':
+                                    continue
+                                with open(f, 'r', encoding='utf-8', errors='replace') as fh:
+                                    first_line = fh.readline()
+                                if first_line:
+                                    meta = json.loads(first_line)
+                                    if meta.get('type') == 'session_meta':
+                                        payload = meta.get('payload', {})
+                                        fcwd = str(Path(payload.get('cwd', '')).resolve()).lower()
+                                        if fcwd == norm_target:
+                                            sid = payload.get('session_id') or payload.get('id')
+                                            if sid and isinstance(sid, str) and SESSION.fullmatch(sid):
+                                                return sid
+                        except (OSError, ValueError):
+                            continue
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return None
 
 
 class Terminals:
@@ -842,6 +926,10 @@ class Terminals:
         if session_id is not None and (not isinstance(session_id, str) or not SESSION.fullmatch(session_id)):
             raise OrchError('Invalid session id')
         number = agent_n
+        conv_id = str(uuid.uuid4())
+        transcript_dir = self.cfg.state / 'transcripts'
+        transcript_dir.mkdir(parents=True, exist_ok=True)
+        transcript_file = transcript_dir / f'{conv_id}.log'
 
         with self.lock:
             if kind == 'agent0':
@@ -910,10 +998,136 @@ class Terminals:
             if kind == 'agent0' and key not in self.sessions and len(self.sessions) >= MAX_SESSIONS and not self.evict_finished():
                 raise OrchError(f'Đã mở {MAX_SESSIONS} cửa sổ. Đóng bớt một cửa sổ rồi thử lại.')
 
-            session = Session(key, kind, title, argv, cwd, self.base_env(), cols, rows)
+            # Register conversation in DB
+            self.db.conversation_add({
+                'id': conv_id,
+                'terminal_key': key,
+                'provider': provider,
+                'agent_n': number,
+                'kind': kind,
+                'cwd': str(cwd),
+                'task_id': task_id,
+                'session_id': sess_id,
+                'title': title,
+                'started': datetime.now(timezone.utc).isoformat(),
+                'last_active': datetime.now(timezone.utc).isoformat(),
+                'status': 'active',
+                'transcript_path': str(transcript_file)
+            })
+
+            def on_title(t):
+                try:
+                    self.db.conversation_update(conv_id, title=t, last_active=datetime.now(timezone.utc).isoformat())
+                except Exception:
+                    pass
+
+            def on_exit(code):
+                try:
+                    self.db.conversation_update(conv_id, status='closed', last_active=datetime.now(timezone.utc).isoformat())
+                except Exception:
+                    pass
+
+            session = Session(key, kind, title, argv, cwd, self.base_env(), cols, rows,
+                              conversation_id=conv_id, transcript_path=transcript_file, session_id=sess_id,
+                              on_title=on_title, on_exit=on_exit, resumed=bool(resume))
             session.provider, session.task_id, session.agent = provider, task_id, number
             self.sessions[key] = session
+
+            if provider == 'codex' and not resume:
+                start_t = time.time()
+                def watch_codex():
+                    found = scan_codex_session(start_t, str(cwd))
+                    if found:
+                        session.session_id = found
+                        try:
+                            self.db.conversation_update(conv_id, session_id=found)
+                        except Exception:
+                            pass
+                threading.Thread(target=watch_codex, daemon=True).start()
+
             return self.describe(session)
+
+    def resume_conversation(self, conv_id, cols=100, rows=30):
+        try:
+            conv = self.db.conversation_get(conv_id)
+        except OrchError:
+            raise OrchError('Hội thoại không tồn tại')
+
+        # 1. Focus existing alive window if open
+        with self.lock:
+            for s in self.sessions.values():
+                if s.alive and (getattr(s, 'conversation_id', None) == conv_id or
+                                (conv.get('session_id') and getattr(s, 'session_id', None) == conv['session_id'])):
+                    return {'already_open': True, **self.describe(s)}
+
+        # 2. Rate limit
+        with self.lock:
+            wait = OPEN_INTERVAL - (time.monotonic() - self.last_open)
+            if wait > 0:
+                raise OrchError(f'Mở terminal quá nhanh; thử lại sau {wait:.1f} giây.')
+            self.last_open = time.monotonic()
+
+        sess_id = conv.get('session_id')
+        if not sess_id:
+            raise OrchError('Phiên này không có session ID để mở lại. Bạn có thể chọn "Xem lại" để đọc bản ghi.')
+        if not isinstance(sess_id, str) or not SESSION.fullmatch(sess_id):
+            raise OrchError('Session ID không hợp lệ')
+
+        # 3. Validate cwd
+        cwd = self.validate_cwd(conv['cwd'], conv.get('task_id'))
+
+        # 4. Open with resume
+        kind = conv['kind']
+        provider = conv['provider']
+        task_id = conv.get('task_id')
+        agent_n = conv.get('agent_n')
+
+        if kind == 'agent0':
+            res = self.open('agent0', cols=cols, rows=rows, resume=sess_id)
+        elif kind in ('agent', 'worker'):
+            res = self.open('agent', provider=provider, task_id=task_id, cols=cols, rows=rows,
+                            resume=sess_id, agent_n=agent_n)
+        else:
+            raise OrchError('Unknown conversation kind')
+
+        # Audit
+        entry = {
+            'time': datetime.now().astimezone().isoformat(timespec='seconds'),
+            'action': 'resume',
+            'conversation_id': conv_id,
+            'session_id': sess_id,
+            'provider': provider,
+            'terminal': res.get('id')
+        }
+        try:
+            with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+                audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        except OSError:
+            pass
+        return res
+
+    def read_transcript(self, conv_id, after=0, limit=200):
+        conv = self.db.conversation_get(conv_id)
+        log_path = Path(conv['transcript_path'])
+        if not log_path.is_file():
+            return {'conversation': conv, 'lines': [], 'start': 0, 'next': 0, 'total': 0, 'has_more': False}
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                all_lines = f.readlines()
+        except OSError:
+            return {'conversation': conv, 'lines': [], 'start': 0, 'next': 0, 'total': 0, 'has_more': False}
+        total = len(all_lines)
+        start = max(0, min(after, total))
+        chunk = all_lines[start:start + limit]
+        nxt = start + len(chunk)
+        return {
+            'conversation': conv,
+            'lines': chunk,
+            'start': start,
+            'next': nxt,
+            'total': total,
+            'has_more': nxt < total
+        }
 
     def stream(self, cursors, wait):
         """One long-poll for every terminal: returns {id: {data, next, alive, exit_code}} for sessions with news."""
