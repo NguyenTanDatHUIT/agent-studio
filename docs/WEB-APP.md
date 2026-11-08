@@ -191,3 +191,14 @@ Thay đổi có hiệu lực ngay, kể cả màu nền của các terminal, và
   trước xong. Hạn chế đã biết: mã của bước do agent khác làm không được tự hợp nhất vào worktree của bước sau; dùng cùng một agent (`same_agent_as`) khi cần mã đó.
 - **Nhiều repo**: khai báo trong config `"repos": {"web": "C:/code/web"}`. Chọn repo khi thêm terminal hoặc `enqueue_task(repo="web")`.
   Agent gắn với một repo. Tên repo chỉ lấy từ config, task không gửi đường dẫn.
+
+## Lịch sử chat & Mở lại phiên (Conversations & Resume)
+
+Dashboard cung cấp nút **"Lịch sử"** trên thanh điều khiển (cạnh "Làm mới log"):
+- **Hộp thoại Lịch sử**:
+  - Nhóm các phiên làm việc theo ngày (`Hôm nay`, `Hôm qua`, hoặc ngày cụ thể `DD/MM/YYYY`).
+  - Hỗ trợ ô tìm kiếm theo tiêu đề/ID và bộ lọc nhà cung cấp (Agent 0, Claude, Codex, Antigravity).
+  - Hiển thị thời gian bắt đầu, badge số hiệu agent, tiêu đề tóm tắt, ngữ cảnh làm việc (repo, task worktree, thư mục cwd), và trạng thái hiện tại.
+- **Hành động**:
+  - **"Xem lại"**: Mở modal transcript chỉ đọc. Toàn bộ nội dung hiển thị trong xterm trước đó được lưu và hiển thị kèm mốc thời gian từng dòng. Hỗ trợ phân trang tải thêm các dòng cũ hơn và nút "Sao chép" để lấy nội dung văn bản.
+  - **"Mở lại" (Resume)**: Khôi phục phiên làm việc thực tế (`claude --resume <id>` hoặc `codex resume <id>`) vào một cửa sổ terminal mới, tự động định vị lại thư mục dự án và chuyển tới đúng trang cửa sổ. Phiên đang mở được vô hiệu hóa nút mở lại để tránh xung đột hai tiến trình cùng ghi vào một phiên.

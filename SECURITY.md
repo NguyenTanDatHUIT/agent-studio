@@ -113,3 +113,13 @@ agent làm tiếp. Đánh đổi cần biết:
   `protected_refs` được làm mới đầu mỗi vòng (bạn có thể đã tích hợp vào main giữa hai vòng).
 - Phạm vi chỉnh sửa vẫn được kiểm tra trên toàn bộ thay đổi so với commit gốc: `allow_paths` của vòng sau phải bao gồm các file
   đã sửa ở vòng trước.
+
+### Lịch sử chat và bản ghi màn hình (Transcripts)
+
+Hệ thống lưu lại các bản ghi màn hình (transcripts) để người dùng có thể xem lại toàn bộ tiến trình trao đổi của các terminal agent và Agent 0:
+
+- **Vị trí lưu trữ**: Nằm tại `<state_dir>/transcripts/<session_id>.txt`. Chỉ tài khoản người dùng Windows chạy Orchestrator có quyền đọc/ghi.
+- **Giới hạn kích thước**: Mỗi file transcript tối đa 5 MB (tự động cắt các dòng cũ nhất khi vượt ngưỡng). Tổng dung lượng thư mục transcripts được giới hạn ở 100 MB; khi đạt mức này, các file transcript cũ nhất sẽ tự động được thu hồi.
+- **Lọc chuỗi nhạy cảm (Redaction)**: Mã nguồn tự động loại bỏ các mã điều khiển ANSI escape sequences, đồng thời tự động nhận diện và làm mờ (redact) các chuỗi nhạy cảm giống token/bearer/API key (`ghp_*`, `sk-ant-*`, `sk-*`, `Bearer ...`) trước khi ghi vào đĩa.
+- **Cách xóa dữ liệu**: Người dùng có thể xóa thủ công toàn bộ thư mục `transcripts/` hoặc các file cụ thể mà không làm hỏng cơ sở dữ liệu `conversations` (API sẽ báo bản ghi trống nếu file không tồn tại).
+- **Cách ly Agent 0 đối với Resume**: Agent 0 tuyệt đối không thể gọi resume qua bridge (yêu cầu xác thực token của dashboard web và cơ chế giới hạn tần suất OPEN_INTERVAL). Mọi hành động resume đều được ghi nhận vào nhật ký kiểm toán.

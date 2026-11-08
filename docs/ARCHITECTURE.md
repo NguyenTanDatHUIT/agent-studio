@@ -87,3 +87,16 @@ Claude gắn phiên theo thư mục làm việc nên chỉ cùng worktree mới 
 Runner chạy `claude --resume <id>` hoặc `codex exec resume <id>`; nếu thất bại thì chạy lại phiên mới trong cùng worktree
 kèm tóm tắt các vòng trước (`resume_failed`). Log vòng cũ được giữ ở `worker-r1`, `test-<tên>-r1`. Tắt nhớ ngữ cảnh thì task
 mới bắt đầu từ commit gốc với phiên ephemeral như trước.
+
+## Lịch sử phiên và resume thực tế (conversations & transcripts)
+
+Hệ thống ghi nhận lịch sử cho cả hai lớp:
+- **Lớp A — Khôi phục ngữ cảnh thật (Resume)**: Áp dụng cho các CLI có hỗ trợ resume chính thức (`claude --resume <session_id>` với `--session-id <uuid>` lúc tạo mới, và `codex resume <session_id>` qua quét file rollout JSONL của Codex).
+- **Lớp B — Xem lại bản ghi màn hình (Transcript)**: Áp dụng cho mọi terminal và worker (kể cả Antigravity/`agy`). Output hiển thị qua PTY được ghi nối tiếp vào `<state_dir>/transcripts/<session_id>.txt` với mốc thời gian, tự động lọc ANSI escape sequences và che giấu các chuỗi nhạy cảm (token/API keys).
+
+Bảng `conversations` trong SQLite lưu: `id`, `session_id`, `kind` (`agent` | `worker` | `agent0`), `provider`, `agent_number`, `title`, `repo`, `task_id`, `cwd`, `status` (`active` | `exited` | `failed`), `created_at`, `updated_at`, `meta_json`.
+
+Các endpoint REST API:
+- `GET /api/conversations?limit=50&provider=claude&q=keyword`: Tìm kiếm và phân trang lịch sử.
+- `GET /api/conversations/<id>/transcript?after=seq&limit=500`: Đọc transcript chỉ đọc có phân trang.
+- `POST /api/conversations/<id>/resume`: Khôi phục phiên trong cửa sổ tương tác thật (chỉ chấp nhận từ web dashboard có token xác thực, ngăn chặn tuyệt đối Agent 0 gọi qua bridge).
