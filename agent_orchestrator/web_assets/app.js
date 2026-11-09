@@ -4,7 +4,7 @@
   const $ = s => root.querySelector(s), $$ = s => [...root.querySelectorAll(s)];
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const labels = {queued:'Trong hàng đợi',running:'Đang thực hiện',awaiting_review:'Chờ review',approved:'Đã duyệt',changes_requested:'Cần chỉnh sửa',failed:'Thất bại',cancelled:'Đã hủy'};
-  const pages = {terminals:['Cửa sổ CMD','Không gian dòng lệnh','Log worker, test và sự kiện được cập nhật từ queue.'],overview:['Tổng quan','Trung tâm điều phối','Giao việc rõ ràng. Theo dõi xuyên suốt. Duyệt từng thay đổi.'],flow:['Luồng tự động','Nhìn rõ từng bước chạy','Luồng động kích hoạt khi Agent 0 gọi agent hoặc giao việc.'],tasks:['Nhiệm vụ','Mỗi nhiệm vụ, một worktree','Phân công, xem bằng chứng test và duyệt thay đổi.'],reports:['Báo cáo','Hiệu quả vận hành','Tổng hợp tối đa 200 nhiệm vụ gần nhất; usage thiếu được giữ nguyên.'],permissions:['Quyền & bảo vệ','Tự động hóa có giới hạn','Chính sách hiện tại và quyền thực thi local.']};
+  const pages = {terminals:['Cửa sổ CMD','Không gian dòng lệnh','Log worker, test và sự kiện được cập nhật từ queue.'],overview:['Tổng quan','Trung tâm điều phối','Giao việc rõ ràng. Theo dõi xuyên suốt. Duyệt từng thay đổi.'],flow:['Luồng tự động','Nhìn rõ từng bước chạy','Luồng động kích hoạt khi Agent 0 gọi agent hoặc giao việc.'],tasks:['Nhiệm vụ','Mỗi nhiệm vụ, một worktree','Phân công, xem bằng chứng test và duyệt thay đổi.'],history:['Lịch sử','Lịch sử trò chuyện','Xem lại, mở lại hoặc xóa các phiên của Agent 0 và terminal agent.'],reports:['Báo cáo','Hiệu quả vận hành','Tổng hợp tối đa 200 nhiệm vụ gần nhất; usage thiếu được giữ nguyên.'],permissions:['Quyền & bảo vệ','Tự động hóa có giới hạn','Chính sách hiện tại và quyền thực thi local.']};
   let pref={};try {pref=JSON.parse(localStorage.getItem('agent-studio-ui')||'{}')||{};}catch {}
   const layouts = {'1x2':[1,2], '2x2':[2,2], '2x3':[2,3], '3x3':[3,3]};
   const parseLayout=text=>{const m=/^\s*(\d{1,2})\s*[x×X]\s*(\d{1,2})\s*$/.exec(String(text));if(!m)return null;const r=+m[1],c=+m[2];return r>=1&&c>=1&&r<=6&&c<=6?{key:`${r}x${c}`,dims:[r,c]}:null;};
@@ -212,7 +212,7 @@
     return raw?response:response.json();
   }
   async function download(path,name){const response=await api(path,undefined,true),blob=await response.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  function navigate(page){state.page=page;$$('[data-view]').forEach(e=>e.hidden=e.dataset.view!==page);$$('[data-page]').forEach(e=>e.setAttribute('aria-current',e.dataset.page===page?'page':'false'));$('[data-title]').textContent=pages[page][1];$('[data-sub]').textContent=pages[page][2];$('[data-crumb]').textContent=pages[page][0];root.classList.toggle('ao-console-compact',page==='terminals');save();requestAnimationFrame(drawEdges);}
+  function navigate(page){state.page=page;$$('[data-view]').forEach(e=>e.hidden=e.dataset.view!==page);$$('[data-page]').forEach(e=>e.setAttribute('aria-current',e.dataset.page===page?'page':'false'));$('[data-title]').textContent=pages[page][1];$('[data-sub]').textContent=pages[page][2];$('[data-crumb]').textContent=pages[page][0];root.classList.toggle('ao-console-compact',page==='terminals');if(page==='history')loadHistory();save();requestAnimationFrame(drawEdges);}
   // Preserve the supplied compact toolbar, sidebar and scoped visual styles.
   const view=$('[data-view="terminals"]'),toolbar=view.querySelector('.ao-console-toolbar'),inventory=view.querySelector('.ao-console-inventory');
   const bar=$('[data-compact-console-bar]').content.cloneNode(true).firstElementChild;
@@ -221,8 +221,7 @@
   bar.querySelector('[data-compact-mode-mount]').append(toolbar.querySelector('.ao-console-mode'));
   const add=inventory.querySelector('[data-console-action="add"]');add.innerHTML='<i data-lucide="plus"></i>CMD';add.setAttribute('aria-label','Thêm cửa sổ theo dõi');bar.querySelector('.ao-console-bar-actions').prepend(add);
   const reload=inventory.querySelector('[data-console-action="feed"]');reload.textContent='Làm mới log';bar.querySelector('[data-compact-extra-mount]').append(reload);
-  const newChat=inventory.querySelector('[data-console-action="newchat"]');if(newChat)bar.querySelector('[data-compact-extra-mount]').prepend(newChat);
-  const hist=inventory.querySelector('[data-console-action="history"]');if(hist){hist.innerHTML='<i data-lucide="history"></i>Lịch sử';hist.setAttribute('aria-label','Xem lịch sử phiên và resume');bar.querySelector('[data-compact-extra-mount]').prepend(hist);}
+  const newChat=inventory.querySelector('[data-console-action="newchat"]');if(newChat)bar.querySelector('.ao-console-bar-actions').prepend(newChat);
   toolbar.replaceWith(bar);inventory.remove();
   $('.ao-console-hint').innerHTML='<span>Kéo tay nắm để sắp xếp · Alt + ← / → để di chuyển cửa sổ</span><span>Log local · Giao việc qua hàng đợi có phạm vi</span>';
   $('[data-console-announce]').textContent='';
@@ -335,20 +334,54 @@
       });
     }
 
-    if(!relevantTasks.length&&(a0.connected||state.runners?.managed)){
-      const provs=['claude','codex'].filter(p=>state.config?.providers?.[p]||state.runners?.providers?.[p]);
-      for(const p of (provs.length?provs:['claude','codex'])){
-        const runner=state.runners?.providers?.[p];
-        const runnerText=runner?({starting:'Runner đang khởi động',polling:'Runner đang nhận việc',idle:'Runner sẵn sàng',busy:'Runner đang xử lý',stopped:'Runner đã dừng',error:'Runner lỗi'}[runner.status]||runner.status):(state.config?.providers?.[p]?'Chưa có runner giám sát':'Chưa cấu hình');
-        const agentName=(p==='claude'?'Claude':'Codex')+' Worker';
-        lanes.push({
-          key:p,
-          provider:p,
-          agent:null,
-          task:null,
-          worker:{name:agentName,desc:'Runner '+p,text:runnerText,running:runner?.status==='busy',success:runner?.status==='idle'},
-          test:{name:'Test · '+agentName,desc:'Test runner',text:'Chờ worker',running:false,success:false}
-        });
+    const liveAgents=(state.sessions||[]).filter(s=>s.kind==='agent'&&s.alive);
+    if(!relevantTasks.length){
+      if(liveAgents.length){
+        for(const s of liveAgents){
+          const p=s.provider;
+          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity'}[p]||p;
+          const agentName=s.title||(`Agent ${s.agent||''} · ${provLabel}`);
+          const isBusy=!s.idle;
+          const cwdName=s.cwd?s.cwd.split(/[\\/]/).pop():'';
+          lanes.push({
+            key:s.id,
+            provider:p,
+            agent:s.agent,
+            session:s,
+            task:null,
+            worker:{
+              name:agentName,
+              desc:'Cửa sổ CMD · '+(cwdName||s.id),
+              text:isBusy?'Đang chạy / xử lý':'Sẵn sàng · Chờ lệnh',
+              running:isBusy,
+              success:!isBusy
+            },
+            test:{
+              name:'Theo dõi · '+agentName,
+              desc:s.id+(s.readonly?' · Chỉ đọc':' · Tương tác'),
+              text:isBusy?'Đang hoạt động':'Chờ Agent 0 giao việc',
+              running:isBusy,
+              success:!isBusy
+            }
+          });
+        }
+      }else if(state.runners?.managed){
+        const provs=Object.keys(state.runners?.providers||{}).filter(p=>['claude','codex','agy'].includes(p));
+        for(const p of provs){
+          const runner=state.runners.providers[p];
+          if(!runner||runner.status==='stopped')continue;
+          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity'}[p]||p;
+          const runnerText=({starting:'Runner đang khởi động',polling:'Runner đang nhận việc',idle:'Runner sẵn sàng',busy:'Runner đang xử lý',stopped:'Runner đã dừng',error:'Runner lỗi'}[runner.status]||runner.status);
+          const agentName=provLabel+' Worker';
+          lanes.push({
+            key:p,
+            provider:p,
+            agent:null,
+            task:null,
+            worker:{name:agentName,desc:'Runner '+p,text:runnerText,running:runner.status==='busy',success:runner.status==='idle'},
+            test:{name:'Test · '+agentName,desc:'Test runner',text:'Chờ worker',running:false,success:false}
+          });
+        }
       }
     }
 
@@ -363,16 +396,17 @@
     };
 
     if(lanes.length){
+      const isTerminalFlow=!relevantTasks.length&&liveAgents.length>0;
       data.review={
-        name:'Review',
-        desc:rv?short(rv.id)+' · '+(rv.result?.changed_files?.length||0)+' file đổi':'Chưa có diff chờ duyệt',
-        text:rv?'Task chờ duyệt':reviewCount?`${reviewCount} task chờ duyệt`:'Chờ kiểm tra',
+        name:isTerminalFlow?'Nghiệm thu':'Review',
+        desc:isTerminalFlow?'Agent 0 theo dõi và đánh giá':(rv?short(rv.id)+' · '+(rv.result?.changed_files?.length||0)+' file đổi':'Chưa có diff chờ duyệt'),
+        text:isTerminalFlow?'Nghiệm thu qua Cửa sổ CMD':(rv?'Task chờ duyệt':reviewCount?`${reviewCount} task chờ duyệt`:'Chờ kiểm tra'),
         task:rv
       };
       data.export={
-        name:'Xuất patch',
-        desc:ap?short(ap.id)+' · sẵn sàng xuất':'Chưa có patch được duyệt',
-        text:ap?'Đã duyệt · có thể xuất':approvedCount?`${approvedCount} đã duyệt · có thể xuất`:'Chờ được duyệt',
+        name:isTerminalFlow?'Tích hợp':'Xuất patch',
+        desc:isTerminalFlow?'Commit & tích hợp vào repo':(ap?short(ap.id)+' · sẵn sàng xuất':'Chưa có patch được duyệt'),
+        text:isTerminalFlow?'Theo chỉ đạo của Agent 0':(ap?'Đã duyệt · có thể xuất':approvedCount?`${approvedCount} đã duyệt · có thể xuất`:'Chờ được duyệt'),
         task:ap
       };
       for(const l of lanes){
@@ -442,16 +476,18 @@
           wNode.type='button';
           wNode.className=`ao-node flow-node flow-node--${l.provider} cursor-interaction`;
           wNode.dataset.node=l.key;wNode.dataset.taskId=l.task?.id||'';wNode.dataset.flowRunning=String(!!l.worker.running);
+          if(l.session)wNode.dataset.termId=l.session.id;
           wNode.style.top=l.top+'px';wNode.style.left='264px';wNode.style.width='218px';wNode.style.height='136px';
-          wNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Worker</span><span class="flow-node__id">${short(l.task?.id)}</span></div><div class="ao-node-name">${esc(l.worker.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(l.task?.id||'')} · ${esc(title(l.task||{}))}">${esc(l.worker.desc)}</div><div class="ao-node-foot flow-node__status ${l.worker.running?'status-running':l.worker.success?'status-success':''}" title="${esc(l.worker.text)}">${esc(l.worker.text)}</div>`;
+          wNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">${l.session?'Agent':'Worker'}</span><span class="flow-node__id">${short(l.task?.id||l.session?.id||'')}</span></div><div class="ao-node-name">${esc(l.worker.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(l.task?.id||l.session?.id||'')} · ${esc(title(l.task||{}))}">${esc(l.worker.desc)}</div><div class="ao-node-foot flow-node__status ${l.worker.running?'status-running':l.worker.success?'status-success':''}" title="${esc(l.worker.text)}">${esc(l.worker.text)}</div>`;
           board.append(wNode);
 
           const tNode=document.createElement('button');
           tNode.type='button';
           tNode.className='ao-node flow-node flow-node--test-1 cursor-interaction';
           tNode.dataset.node='test'+l.key;tNode.dataset.taskId=l.task?.id||'';tNode.dataset.flowRunning=String(!!l.test.running);
+          if(l.session)tNode.dataset.termId=l.session.id;
           tNode.style.top=l.top+'px';tNode.style.left='534px';tNode.style.width='194px';tNode.style.height='136px';
-          tNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Test</span><span class="flow-node__id">${short(l.task?.id)}</span></div><div class="ao-node-name">${esc(l.test.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(l.test.desc)}">${esc(l.test.desc)}</div><div class="ao-node-foot flow-node__status ${l.test.running?'status-running':l.test.success?'status-success':''}" title="${esc(l.test.text)}">${esc(l.test.text)}</div>`;
+          tNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">${l.session?'Theo dõi':'Test'}</span><span class="flow-node__id">${short(l.task?.id||l.session?.id||'')}</span></div><div class="ao-node-name">${esc(l.test.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(l.test.desc)}">${esc(l.test.desc)}</div><div class="ao-node-foot flow-node__status ${l.test.running?'status-running':l.test.success?'status-success':''}" title="${esc(l.test.text)}">${esc(l.test.text)}</div>`;
           board.append(tNode);
         }
 
@@ -460,7 +496,7 @@
         rNode.className='ao-node flow-node flow-node--review cursor-interaction';
         rNode.dataset.node='review';rNode.dataset.taskId=rv?.id||'';
         rNode.style.top=centerY+'px';rNode.style.left='800px';rNode.style.width='198px';rNode.style.height='132px';
-        rNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Kiểm soát</span><span class="flow-node__id">${rv?short(rv.id):''}</span></div><div class="ao-node-name">Review</div><div class="ao-node-desc flow-node__desc" title="${esc(data.review.desc)}">${esc(data.review.desc)}</div><div class="ao-node-foot flow-node__status" title="${esc(data.review.text)}">${esc(data.review.text)}</div>`;
+        rNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Kiểm soát</span><span class="flow-node__id">${rv?short(rv.id):''}</span></div><div class="ao-node-name">${esc(data.review.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(data.review.desc)}">${esc(data.review.desc)}</div><div class="ao-node-foot flow-node__status" title="${esc(data.review.text)}">${esc(data.review.text)}</div>`;
         board.append(rNode);
 
         const eNode=document.createElement('button');
@@ -468,7 +504,7 @@
         eNode.className='ao-node flow-node flow-node--patch cursor-interaction';
         eNode.dataset.node='export';eNode.dataset.taskId=ap?.id||'';
         eNode.style.top=centerY+'px';eNode.style.left='1074px';eNode.style.width='172px';eNode.style.height='132px';
-        eNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Tích hợp</span><span class="flow-node__id">${ap?short(ap.id):''}</span></div><div class="ao-node-name">Xuất patch</div><div class="ao-node-desc flow-node__desc" title="${esc(data.export.desc)}">${esc(data.export.desc)}</div><div class="ao-node-foot flow-node__status" title="${esc(data.export.text)}">${esc(data.export.text)}</div>`;
+        eNode.innerHTML=`<div class="ao-node-top flow-node__top"><span class="flow-node__type">Tích hợp</span><span class="flow-node__id">${ap?short(ap.id):''}</span></div><div class="ao-node-name">${esc(data.export.name)}</div><div class="ao-node-desc flow-node__desc" title="${esc(data.export.desc)}">${esc(data.export.desc)}</div><div class="ao-node-foot flow-node__status" title="${esc(data.export.text)}">${esc(data.export.text)}</div>`;
         board.append(eNode);
       }
 
@@ -492,6 +528,7 @@
     state.flowEdges=flowEdges;
 
     const running=runningCount;
+    const isTerminalFlow=!relevantTasks.length&&liveAgents.length>0;
     $$('[data-flow-summary]').forEach(e=>{
       if(!lanes.length){
         e.textContent='Chưa có hoạt động';
@@ -499,6 +536,10 @@
       }else if(isViewingTask&&selectedTask){
         e.textContent=`Xem lại task ${short(selectedTask.id)}`;
         e.classList.remove('has-activity');
+      }else if(isTerminalFlow){
+        const activeCount=liveAgents.filter(s=>!s.idle).length;
+        e.textContent=activeCount?`${activeCount} agent đang thực hiện lệnh · ${liveAgents.length} agent mở`:`${liveAgents.length} agent tương tác sẵn sàng`;
+        e.classList.add('has-activity');
       }else{
         e.textContent=running?`${running} task đang thực hiện`:reviewCount?`${reviewCount} task chờ review`:'Sẵn sàng';
         e.classList.toggle('has-activity',running>0);
@@ -506,9 +547,10 @@
     });
 
     const selected=state.flowNode&&data[state.flowNode],task=selected?.task;
-    $$('[data-node-title]').forEach(e=>e.textContent=task?selected.name+' · '+short(task.id):(lanes.length?(isViewingTask?`Nhiệm vụ ${short(selectedTask.id)}`:'Quy trình điều phối'):'Agent 0 · Sẵn sàng điều phối'));
-    $$('[data-node-description]').forEach(e=>e.textContent=task?title(task)+' · '+selected.text:(lanes.length?(isViewingTask?'Sơ đồ quy trình thực hiện của nhiệm vụ đã chọn. Bấm các bước để xem chi tiết.':'Chọn một bước để xem nhiệm vụ liên quan. Review và xuất patch không tự tích hợp vào main.'):'Agent 0 đang chờ lệnh.'));
-    $$('[data-node-badge]').forEach(e=>e.textContent=task?labels[task.status]:(lanes.length?(isViewingTask?'Lịch sử':'Đang thực thi'):(a0.connected?'MCP Sẵn sàng':'Chờ kết nối')));
+    $$('[data-node-title]').forEach(e=>e.textContent=task?selected.name+' · '+short(task.id):(lanes.length?(isViewingTask?`Nhiệm vụ ${short(selectedTask.id)}`:(isTerminalFlow?'Điều phối Agent tương tác':'Quy trình điều phối')):'Agent 0 · Sẵn sàng điều phối'));
+    $$('[data-node-description]').forEach(e=>e.textContent=task?title(task)+' · '+selected.text:(lanes.length?(isViewingTask?'Sơ đồ quy trình thực hiện của nhiệm vụ đã chọn. Bấm các bước để xem chi tiết.':(isTerminalFlow?'Agent 0 đang điều phối các cửa sổ terminal tương tác. Bấm vào từng bước để chuyển sang Cửa sổ CMD.':'Chọn một bước để xem nhiệm vụ liên quan. Review và xuất patch không tự tích hợp vào main.')):'Agent 0 đang chờ lệnh.'));
+    $$('[data-node-badge]').forEach(e=>e.textContent=task?labels[task.status]:(lanes.length?(isViewingTask?'Lịch sử':(isTerminalFlow?'Terminal trực tiếp':'Đang thực thi')):(a0.connected?'MCP Sẵn sàng':'Chờ kết nối')));
+    $$('[data-action="open-task"]').forEach(btn=>{btn.textContent=isTerminalFlow?'Mở cửa sổ CMD →':'Xem nhiệm vụ →';});
 
     renderLive();icons();requestAnimationFrame(drawEdges);
   }
@@ -666,7 +708,7 @@
   });
   applyTheme();icons();
   function liveTerm(id){const e=terms.get(id);return !!e&&!e.dead;}
-  function placeTerm(w){const e=terms.get(w.id),card=$(`[data-window="${w.id}"]`);if(!e||!card)return;const host=card.querySelector('[data-term-host]');host.hidden=false;card.querySelector('[data-window-output]').hidden=true;const hist=card.querySelector('.ao-terminal-history');if(hist)hist.hidden=true;if(e.el.parentNode!==host)host.appendChild(e.el);if(!e.opened){e.opened=true;try{e.term.open(e.el);}catch(error){e.opened=false;}}if(e.observer)e.observer.disconnect();e.observer=new ResizeObserver(()=>{try{e.fit.fit();}catch(_){}});e.observer.observe(host);requestAnimationFrame(()=>{try{e.fit.fit();}catch(_){}});}
+  function placeTerm(w){const e=terms.get(w.id),card=$(`[data-window="${w.id}"]`);if(!e||!card)return;const host=card.querySelector('[data-term-host]');host.hidden=false;card.querySelector('[data-window-output]').hidden=true;const hist=card.querySelector('.ao-terminal-history');if(hist)hist.hidden=true;if(e.el.parentNode!==host)host.appendChild(e.el);if(!e.opened){e.opened=true;try{e.term.open(e.el);}catch(error){e.opened=false;}if(e.opened&&typeof WebglAddon!=='undefined'){try{const gl=new WebglAddon.WebglAddon();gl.onContextLoss(()=>{try{gl.dispose();}catch(_){}});e.term.loadAddon(gl);}catch(_){}}}if(e.observer)e.observer.disconnect();e.observer=new ResizeObserver(()=>{try{e.fit.fit();}catch(_){}});e.observer.observe(host);requestAnimationFrame(()=>{try{e.fit.fit();}catch(_){}});}
   function attachTerm(info){
     if(typeof Terminal==='undefined')return;
     const term=new Terminal({
@@ -674,24 +716,28 @@
       disableStdin:info.kind==='worker',
       fontSize:13,
       fontFamily:'Consolas,"Courier New",monospace',
-      scrollback:5000,
+      scrollback:2000,
       theme:termTheme(),
       windowsPty:{backend:'conpty'},
       allowProposedApi:true
     });
     const fit=new FitAddon.FitAddon();term.loadAddon(fit);
+    // WebGL renderer: far faster than the DOM renderer when the screen holds a lot of text. Loaded after open() (see placeTerm).
+
     const el=document.createElement('div');el.className='ao-term-el';
     const e={term,fit,el,after:0,dead:false,id:info.id,readonly:info.kind==='worker',queue:Promise.resolve(),agent:info.agent,provider:info.provider,title:info.title,kind:info.kind,gen:info.gen};terms.set(info.id,e);
 
     // Bắt phím tắt Paste / Copy trên terminal
     term.attachCustomKeyEventHandler(ev=>{
       if((ev.ctrlKey&&(ev.key==='v'||ev.key==='V'))||(ev.shiftKey&&ev.key==='Insert')){
-        if(ev.type==='keydown'&&!e.readonly){
-          navigator.clipboard.readText().then(text=>{
-            if(text)term.paste(text);
-          }).catch(()=>{});
+        if(e.readonly){
+          ev.preventDefault?.();
+          return false;
         }
-        return false; // Ngăn xterm gửi ASCII \x16 vào ConPTY
+        // Trả false để xterm không gửi mã điều khiển ASCII \x16 vào ConPTY;
+        // trình duyệt sẽ tự phát sự kiện 'paste' native vào textarea helper của xterm
+        // và xterm sẽ tự gọi paste(clipboardData) đúng 1 lần duy nhất, tránh bị dán 2 lần.
+        return false;
       }
       if(ev.ctrlKey&&(ev.key==='c'||ev.key==='C')&&term.hasSelection()){
         if(ev.type==='keydown'){
@@ -702,9 +748,10 @@
       return true;
     });
 
-    // Sự kiện Paste native trên thẻ container
+    // Sự kiện Paste native trên thẻ container (phòng khi paste mà focus chưa nằm ở helper textarea)
     el.addEventListener('paste',ev=>{
       if(e.readonly)return;
+      if(ev.target&&ev.target.classList&&ev.target.classList.contains('xterm-helper-textarea'))return;
       ev.preventDefault();
       const text=(ev.clipboardData||window.clipboardData)?.getData('text');
       if(text)term.paste(text);
@@ -733,46 +780,43 @@
       return false;
     });
 
-    // Bộ đệm gom cụm gõ phím siêu tốc (10ms) & chuẩn hóa Unicode NFC:
-    // Tránh việc gửi rời rạc từng Backspace / ký tự tiếng Việt từ Unikey/EVKey
-    // làm ConPTY xử lý Backspace ngắt quãng gây nuốt chữ trước đó ("nhiêu" -> "nhêu", "bằng" -> "ằng").
-    let inputBuf='',inputTimer=null;
-    const flushInput=()=>{
-      if(inputTimer){clearTimeout(inputTimer);inputTimer=null;}
-      if(!inputBuf)return;
-      const chunk=inputBuf;inputBuf='';
+    // Gửi từng gói onData ngay, giữ đúng thứ tự qua e.queue. Không gộp Backspace với chữ có dấu của Unikey/EVKey:
+    // TUI như agy coi một lần đọc nhiều byte là paste/escape nên xử lý Backspace sai và nuốt chữ đứng trước.
+    // Bật log byte thô: localStorage.setItem('ao-term-debug','1') rồi tải lại trang.
+    let debugIn=false;try{debugIn=localStorage.getItem('ao-term-debug')==='1';}catch(_){}
+    const sendInput=chunk=>{
+      if(debugIn)console.log('[term in]',e.id,[...chunk].map(c=>c.codePointAt(0).toString(16)).join(' '));
       e.queue=e.queue.then(()=>api(`/terminals/${e.id}/input`,{data:chunk})).catch(()=>{});
     };
-    e.flush=flushInput;
+    e.flush=()=>{};
 
     term.onData(d=>{
       if(e.readonly)return;
-      const str=(typeof d==='string'?d.normalize('NFC'):d);
-      inputBuf+=str;
-      if(str.includes('\r')||str.includes('\n')){
-        if(e.id!=='agent0'){
-          e.awaitingResponse=true;
-          e.notified=false;
-          e.streamBytes=0;
-          e.sentAt=Date.now();
-          if(e.quietTimer){clearTimeout(e.quietTimer);e.quietTimer=null;}
-        }
+      if(e.id!=='agent0'&&(d.includes('\r')||d.includes('\n'))){
+        e.awaitingResponse=true;
+        e.notified=false;
+        e.streamBytes=0;
+        e.sentAt=Date.now();
+        if(e.quietTimer){clearTimeout(e.quietTimer);e.quietTimer=null;}
       }
-      if(str.includes('\x03')){
+      if(d.includes('\x03')){
         e.awaitingResponse=false;
         e.notified=true;
         if(e.quietTimer){clearTimeout(e.quietTimer);e.quietTimer=null;}
       }
-      if(str.includes('\r')||str.includes('\n')||str.includes('\x1b')||str.includes('\x03')||inputBuf.length>=32){
-        flushInput();
-      }else{
-        if(inputTimer)clearTimeout(inputTimer);
-        inputTimer=setTimeout(flushInput,10);
-      }
+      sendInput(d);
     });
 
     term.onResize(({cols,rows})=>{api(`/terminals/${e.id}/resize`,{cols,rows}).catch(()=>{});});
     streamLoop();return e;
+  }
+  // Gom output của nhiều lần poll thành một lần write mỗi khung hình để xterm không bị nghẽn khi agy vẽ lại cả màn hình.
+  function flushWrite(e){
+    e.rafId=0;const parts=e.pending;if(!parts||!parts.length)return;e.pending=[];
+    let n=0;for(const b of parts)n+=b.length;
+    const all=parts.length===1?parts[0]:new Uint8Array(n);
+    if(parts.length>1){let o=0;for(const b of parts){all.set(b,o);o+=b.length;}}
+    try{e.term.write(all);}catch(_){}
   }
   let streaming=false;
   async function streamLoop(){
@@ -780,15 +824,17 @@
     try{while(terms.size){
       const live=[...terms.values()].filter(e=>!e.dead&&!e.ended);
       if(!live.length){await new Promise(r=>setTimeout(r,1000));continue;}
+      const reqMap=new Map(live.map(e=>[e.id,e]));
       try{
         const r=await api('/terminals/stream?c='+encodeURIComponent(live.map(e=>e.id+':'+e.after).join(','))+'&wait=6');
         for(const [id,x] of Object.entries(r)){
-          const e=terms.get(id);if(!e)continue;
+          const e=reqMap.get(id);if(!e||e.dead||terms.get(id)!==e||(x.gen!=null&&e.gen!=null&&x.gen!==e.gen))continue;
           if(x.gone){e.dead=true;continue;}
           if(x.data){
             const bin=atob(x.data),bytes=new Uint8Array(bin.length);
             for(let k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);
-            e.term.write(bytes);
+            (e.pending||(e.pending=[])).push(bytes);
+            if(!e.rafId)e.rafId=requestAnimationFrame(()=>flushWrite(e));
             if(!e.readonly&&e.id!=='agent0'&&e.awaitingResponse&&!e.notified){
               e.streamBytes=(e.streamBytes||0)+bytes.length;
               if(e.quietTimer)clearTimeout(e.quietTimer);
@@ -823,6 +869,7 @@
               setTimeout(()=>speakText(speechMsg),250);
               notify(speechMsg,false,e.title||e.id);
             }
+            flushWrite(e);
             e.term.write(e.readonly?'\r\n\x1b[33m[Task đã kết thúc. Có thể đóng cửa sổ theo dõi này.]\x1b[0m\r\n':'\r\n\x1b[33m[Terminal đã kết thúc (mã '+x.exit_code+'). Bấm "Đóng terminal" để xóa cửa sổ này.]\x1b[0m\r\n');
           }
         }
@@ -887,7 +934,17 @@
   }
   const wfLabels={waiting:'Chờ',releasing:'Đang giao',released:'Đã giao',done:'Xong',blocked:'Bị chặn',cancelled:'Đã hủy'},wfStates={running:'Đang chạy',done:'Hoàn tất',blocked:'Bị chặn',cancelled:'Đã hủy'};
   function renderWorkflows(){const box=$('[data-workflows]');if(!box)return;const list=state.workflows||[];box.innerHTML=`<div class="ao-panel-head"><div><h2>Workflow</h2><p>Kế hoạch nhiều bước do Agent 0 tạo bằng enqueue_plan: bước sau tự chạy khi các bước nó chờ đã xong.</p></div></div>`+(list.length?list.map(w=>`<article class="ao-wf"><header><strong>${esc(w.title)}</strong><span class="ao-wf-state ${esc(w.state)}">${esc(wfStates[w.state]||w.state)}</span><code>${esc(w.id)}</code>${w.state==='running'||w.state==='blocked'?`<button type="button" class="ao-btn cursor-interaction" data-wf-cancel="${esc(w.id)}">Hủy</button>`:''}</header><ol>${w.steps.map(s=>`<li class="ao-wf-step ${esc(s.status)}"><b>${esc(s.id)}</b><span>Agent ${s.agent} (${esc(s.provider)})</span><span>${esc(wfLabels[s.status]||s.status)}${s.task_status?' · '+esc(s.task_status):''}</span><small>${s.after.length?'sau '+s.after.map(esc).join(', '):'bắt đầu ngay'}${s.note?' · '+esc(s.note):''}</small></li>`).join('')}</ol></article>`).join(''):'<p class="ao-muted" style="padding:0 16px 16px">Chưa có workflow. Nhờ Agent 0 lập kế hoạch nhiều bước.</p>');}
-  async function refreshData(){const prior=state.tasks.find(t=>t.id===state.selected)?.status;const [tasks,events,runners,agent0]=await Promise.all([api('/tasks'),api('/activity'),api('/runners'),api('/agent0').catch(()=>({connected:false}))]);checkTaskSoundAlerts(tasks);state.agent0=agent0;state.workflows=await api('/workflows').then(r=>Array.isArray(r)?r:[]).catch(()=>[]);renderWorkflows();state.tasks=tasks;state.events=events;state.runners=runners;$('.ao-demo').textContent=runnerLabel();$('.ao-demo').classList.toggle('error',Object.values(runners.providers).some(r=>r.status==='error'));renderTasks();await syncTerms().catch(e=>{notify('Terminal: '+e.message,true);});buildWindows();$('[data-console-active]').textContent=tasks.filter(t=>t.status==='running').length+' task đang chạy';await refreshWindows();if(!state.busy&&state.page==='tasks'&&state.selected&&prior!==tasks.find(t=>t.id===state.selected)?.status)await selectTask(state.selected);}
+  // Work from earlier chats is hidden by default (a new chat starts clean); this keeps it one click away.
+  function renderScopeNote(){
+    const box=$('[data-scope-note]');if(!box)return;
+    const hidden=state.chat&&state.chat.hidden?state.chat.hidden:{tasks:0,review:0};
+    box.hidden=!state.allChats&&!hidden.tasks;
+    $('[data-scope-text]').textContent=state.allChats
+      ?'Đang hiện cả nhiệm vụ của các cuộc trò chuyện trước.'
+      :`Đang ẩn ${hidden.tasks} nhiệm vụ của các cuộc trò chuyện trước${hidden.review?` (${hidden.review} đang chờ review)`:''}.`;
+    $('[data-scope-toggle]').textContent=state.allChats?'Chỉ cuộc trò chuyện hiện tại':'Hiện tất cả';
+  }
+  async function refreshData(){const q=state.allChats?'?scope=all':'';const prior=state.tasks.find(t=>t.id===state.selected)?.status;const [tasks,events,runners,agent0]=await Promise.all([api('/tasks'+q),api('/activity'+q),api('/runners'),api('/agent0').catch(()=>({connected:false}))]);checkTaskSoundAlerts(tasks);state.agent0=agent0;state.chat=await api('/chat').catch(()=>null);renderScopeNote();state.workflows=await api('/workflows'+q).then(r=>Array.isArray(r)?r:[]).catch(()=>[]);renderWorkflows();state.tasks=tasks;state.events=events;state.runners=runners;$('.ao-demo').textContent=runnerLabel();$('.ao-demo').classList.toggle('error',Object.values(runners.providers).some(r=>r.status==='error'));renderTasks();await syncTerms().catch(e=>{notify('Terminal: '+e.message,true);});buildWindows();$('[data-console-active]').textContent=tasks.filter(t=>t.status==='running').length+' task đang chạy';await refreshWindows();if(!state.busy&&state.page==='tasks'&&state.selected&&prior!==tasks.find(t=>t.id===state.selected)?.status)await selectTask(state.selected);}
   async function runAction(fn){if(state.busy)return;state.busy=true;root.setAttribute('aria-busy','true');$$('[data-review],[data-detail="export"],[data-action="create-task"]').forEach(b=>b.disabled=true);try{await fn();}catch(error){notify(error.message,true);}finally{state.busy=false;root.removeAttribute('aria-busy');$$('[data-review],[data-detail="export"],[data-action="create-task"]').forEach(b=>b.disabled=false);}}
   function openForm(provider,prompt='',scope='src, tests',agent=null){state.formAgent=agent||null;form.elements.provider.disabled=!!agent;form.querySelector('.ao-actions .ao-muted').textContent=agent?`Giao việc tiếp cho ${provider} ${agent}: theo cài đặt nhớ ngữ cảnh của agent.`:'Worker nhận việc khi runner đang hoạt động.';navigate('tasks');form.hidden=false;form.elements.prompt.value=prompt;form.elements.scope.value=scope;if(provider&&state.config?.providers[provider])form.elements.provider.value=provider;form.elements.prompt.focus();}
   form.addEventListener('submit',event=>{event.preventDefault();runAction(async()=>{if(!form.reportValidity())return;const data=new FormData(form),tests=data.getAll('tests');if(!tests.length)throw Error('Chọn ít nhất một test profile.');const result=await api('/tasks',{...(state.formAgent?{agent:state.formAgent}:{provider:data.get('provider')}),prompt:String(data.get('prompt')).trim(),allow_paths:String(data.get('scope')).split(/[,\n]/).map(x=>x.trim()).filter(Boolean),tests});form.hidden=true;form.elements.prompt.value='';state.formAgent=null;form.elements.provider.disabled=false;notify(result.round>1?`${result.provider} ${result.agent} làm tiếp task ${short(result.id)} (vòng ${result.round}).`:`Đã thêm task ${short(result.id)} (${result.provider} ${result.agent}) vào hàng đợi.`);await refreshData();await selectTask(result.id);});});
@@ -907,7 +964,7 @@
         const newPath=res.path.replace(/\//g,'\\');
         runAction(async()=>{
           const applied=await api('/repo',{path:newPath});
-          notify(`Đã chọn thư mục: ${applied.name||applied.repo}`);
+          notify(`Đã chọn thư mục: ${applied.name||applied.repo}${applied.agent0_restarted?'. Agent 0 được mở lại để làm việc trên repo này.':''}`);
           const cfg=await api('/config');
           configure(cfg);
           await refreshData();
@@ -927,7 +984,7 @@
     if(!path)return;
     runAction(async()=>{
       const applied=await api('/repo',{path});
-      notify(`Đã chọn thư mục: ${applied.name||applied.repo}`);
+      notify(`Đã chọn thư mục: ${applied.name||applied.repo}${applied.agent0_restarted?'. Agent 0 được mở lại để làm việc trên repo này.':''}`);
       const cfg=await api('/config');
       configure(cfg);
       await refreshData();
@@ -938,10 +995,8 @@
     pickFolderNative();
   }
 
-  const historyModal=document.createElement('dialog');
-  historyModal.className='ao-window-dialog ao-history-dialog';
-  historyModal.innerHTML=`<div class="ao-history-header"><div><h2>Lịch sử chat &amp; phiên làm việc</h2><p class="ao-muted" style="margin:2px 0 0;font-size:12px">Xem lại log hoặc mở lại phiên của Agent 0 và các terminal agent</p></div><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-history-close aria-label="Đóng lịch sử"><i data-lucide="x"></i></button></div><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button><button type="button" class="ao-btn cursor-interaction" data-history-clear title="Xóa toàn bộ lịch sử không đang mở">Xóa tất cả</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div>`;
-  root.append(historyModal);
+  const historyView=$('[data-view="history"]');
+  historyView.innerHTML=`<div class="ao-panel ao-history-page"><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button><button type="button" class="ao-btn cursor-interaction" data-history-clear title="Xóa toàn bộ lịch sử không đang mở">Xóa tất cả</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div></div>`;
 
   const transcriptModal=document.createElement('dialog');
   transcriptModal.className='ao-window-dialog ao-transcript-dialog';
@@ -968,10 +1023,10 @@
   const convStart=c=>c.started||c.created_at;
   let convCache=[];
   async function loadHistory(){
-    const listEl=historyModal.querySelector('[data-history-list]');
+    const listEl=historyView.querySelector('[data-history-list]');
     listEl.innerHTML='<p class="ao-muted" style="padding:24px;text-align:center">Đang tải lịch sử…</p>';
-    const q=historyModal.querySelector('[data-history-search]').value.trim();
-    const prov=historyModal.querySelector('[data-history-provider]').value;
+    const q=historyView.querySelector('[data-history-search]').value.trim();
+    const prov=historyView.querySelector('[data-history-provider]').value;
     const params=new URLSearchParams({limit:'100'});
     if(q)params.set('q',q);
     if(prov)params.set('provider',prov);
@@ -984,7 +1039,7 @@
     }
   }
   function renderHistoryList(convs){
-    const listEl=historyModal.querySelector('[data-history-list]');
+    const listEl=historyView.querySelector('[data-history-list]');
     if(!convs||!convs.length){
       listEl.innerHTML='<p class="ao-empty" style="padding:24px;text-align:center">Không tìm thấy phiên hội thoại nào.</p>';
       return;
@@ -1012,30 +1067,19 @@
     listEl.innerHTML=html;
     icons();
   }
-  function openHistoryModal(){
-    closeSettings();
-    if(typeof historyModal.showModal==='function')historyModal.showModal();
-    else historyModal.setAttribute('open','');
-    loadHistory();
-    icons();
-  }
   let historySearchTimer=null;
-  historyModal.querySelector('[data-history-search]').addEventListener('input',()=>{clearTimeout(historySearchTimer);historySearchTimer=setTimeout(loadHistory,200);});
-  historyModal.querySelector('[data-history-provider]').addEventListener('change',loadHistory);
-  historyModal.querySelector('[data-history-refresh]').addEventListener('click',loadHistory);
-  historyModal.querySelector('[data-history-clear]').addEventListener('click',()=>{
+  historyView.querySelector('[data-history-search]').addEventListener('input',()=>{clearTimeout(historySearchTimer);historySearchTimer=setTimeout(loadHistory,200);});
+  historyView.querySelector('[data-history-provider]').addEventListener('change',loadHistory);
+  historyView.querySelector('[data-history-refresh]').addEventListener('click',loadHistory);
+  historyView.querySelector('[data-history-clear]').addEventListener('click',()=>{
     if(!confirm('Xóa TOÀN BỘ lịch sử chat và bản ghi transcript (trừ các phiên đang mở)? Không thể hoàn tác.'))return;
     runAction(async()=>{const r=await api('/conversations/delete-all',{confirm:true});notify(`Đã xóa ${r.deleted} phiên${r.kept_open?` (giữ ${r.kept_open} phiên đang mở)`:''}.`);await loadHistory();});
   });
-  historyModal.addEventListener('click',event=>{
+  historyView.addEventListener('click',event=>{
     const del=event.target.closest('[data-conv-delete]');if(!del||del.disabled)return;
     const id=del.dataset.convDelete,conv=convCache.find(c=>c.id===id)||{};
     if(!confirm(`Xóa phiên "${conv.title||short(id)}" và bản ghi của nó? Không thể hoàn tác.`))return;
     runAction(async()=>{await api(`/conversations/${id}/delete`,{});notify('Đã xóa phiên và bản ghi.');await loadHistory();});
-  });
-  historyModal.querySelector('[data-history-close]').addEventListener('click',()=>{
-    if(typeof historyModal.close==='function')historyModal.close();
-    else historyModal.removeAttribute('open');
   });
 
   let activeTranscriptConv=null,transcriptLines=[],transcriptHasMore=false,nextTranscriptAfter=0;
@@ -1095,14 +1139,13 @@
     if(activeTranscriptConv)loadTranscriptChunk(activeTranscriptConv.id,nextTranscriptAfter);
   });
   async function resumeConversation(convId){
-    const row=historyModal.querySelector(`[data-conv-id="${convId}"]`);
+    const row=historyView.querySelector(`[data-conv-id="${convId}"]`);
     const btn=row?.querySelector('[data-conv-resume]');
     if(btn){btn.disabled=true;btn.textContent='Đang mở…';}
     try{
       const res=await api(`/conversations/${convId}/resume`,{});
       notify(`Đã khôi phục phiên: ${res.title||convId}`);
-      if(typeof historyModal.close==='function')historyModal.close();
-      else historyModal.removeAttribute('open');
+      navigate('terminals');
       await refreshData();
       const winId=res.id||res.terminal_id;
       if(winId){
@@ -1261,18 +1304,35 @@
     const action=target.closest('[data-action]')?.dataset.action;if(action==='new-task')openForm();if(action==='close-form')form.hidden=true;if(action==='open-repo-dialog')openRepoDialog();
     const detail=target.closest('[data-detail]');if(detail){runAction(()=>detailAction(detail.dataset.detail));return;}
     const review=target.closest('[data-review]');if(review){runAction(async()=>{if(!state.bundle||state.bundle.id!==state.selected)throw Error('Mở lại diff để lấy digest hiện tại.');if(!$('[data-review-ack]').checked)throw Error('Xác nhận đã đọc diff và bằng chứng test.');const notes=$('[data-review-notes]').value.trim();if(!notes)throw Error('Nhập nhận xét review.');const id=state.selected;await api(`/tasks/${id}/review`,{verdict:review.dataset.review,patch_sha256:state.bundle.patch_sha256,notes});notify('Đã ghi nhận review cho đúng digest.');await refreshData();await selectTask(id);await detailAction('diff');});return;}
-    const node=target.closest('[data-node]');if(node){const kind=node.dataset.node;state.flowNode=kind;const t=state.tasks.find(t=>t.id===node.dataset.taskId);if(t)runAction(()=>selectTask(t.id));else notify('Chưa có nhiệm vụ tại bước này.');return;}
-    if(action==='open-task'){const t=state.tasks.find(t=>t.status==='awaiting_review')||state.tasks[0];if(t)runAction(()=>selectTask(t.id));else navigate('tasks');}
+    const node=target.closest('[data-node]');if(node){
+      const termId=node.dataset.termId;
+      if(termId){state.focus=termId;navigate('terminals');renderWindows();refreshWindows();return;}
+      const kind=node.dataset.node;state.flowNode=kind;
+      const t=state.tasks.find(t=>t.id===node.dataset.taskId);
+      if(t)runAction(()=>selectTask(t.id));
+      else if(kind==='agent0'){state.focus='agent0';navigate('terminals');renderWindows();refreshWindows();}
+      else notify('Chưa có nhiệm vụ tại bước này.');
+      return;
+    }
+    if(action==='open-task'){
+      const t=state.tasks.find(t=>t.status==='awaiting_review')||state.tasks[0];
+      if(t)runAction(()=>selectTask(t.id));
+      else if(state.flowNode&&$(`[data-node="${state.flowNode}"]`)?.dataset.termId){
+        state.focus=$(`[data-node="${state.flowNode}"]`).dataset.termId;navigate('terminals');renderWindows();refreshWindows();
+      }else if(state.sessions?.some(s=>s.kind==='agent'&&s.alive)){
+        navigate('terminals');
+      }else navigate('tasks');
+    }
     const layout=target.closest('[data-console-layout]');if(layout){state.layout=layout.dataset.consoleLayout;state.focus=null;state.windowPage=1;renderWindows();refreshWindows();closeSettings();}
     const mode=target.closest('[data-console-mode]');if(mode){state.mode=mode.dataset.consoleMode;state.focus=null;renderWindows();refreshWindows();closeSettings();}
     const wp=target.closest('[data-window-page]');if(wp){state.windowPage=Number(wp.dataset.windowPage);renderWindows();refreshWindows();}
     const focus=target.closest('[data-focus]');if(focus){state.focus=state.focus?null:focus.dataset.focus;renderWindows();refreshWindows();}
     const historyButton=target.closest('[data-history]');if(historyButton){const card=historyButton.closest('[data-window]');card.classList.toggle('ao-expanded');historyButton.textContent=card.classList.contains('ao-expanded')?'Thu gọn log':'Xem log mở rộng';}
+    const scopeToggle=target.closest('[data-scope-toggle]');if(scopeToggle){state.allChats=!state.allChats;runAction(refreshData);return;}
     const consoleAction=target.closest('[data-console-action]')?.dataset.consoleAction;
     if(consoleAction==='unfocus'){state.focus=null;renderWindows();refreshWindows();}
     if(consoleAction==='feed')runAction(refreshData);
     if(consoleAction==='newchat'){runAction(openChatModal);return;}
-    if(consoleAction==='history'){openHistoryModal();return;}
     const convResume=target.closest('[data-conv-resume]');
     if(convResume){resumeConversation(convResume.dataset.convResume);return;}
     const convView=target.closest('[data-conv-view]');

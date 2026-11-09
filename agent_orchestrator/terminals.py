@@ -36,6 +36,9 @@ OPEN_INTERVAL = 2.0    # minimum seconds between two terminals opened by Agent 0
 TASK_ID = re.compile(r'^[0-9a-f]{24}$')
 STAGE = re.compile(r'^[\w.-]{1,64}$')
 AGENT0_TOOLS = ['enqueue_task', 'enqueue_plan', 'list_workflows', 'cancel_workflow', 'list_repos', 'list_tasks', 'get_task', 'get_events', 'review_bundle', 'list_terminals', 'read_terminal', 'list_agents']
+# Agent 0 only coordinates: it must hand work to the dashboard (enqueue_task / open_terminal), never spawn agents inside its own
+# terminal. Claude Code's built-in sub-agent tools and launching an agent CLI through Bash are therefore denied.
+AGENT0_DENIED = ['Agent', 'Task', 'Workflow'] + [f'Bash({cli}:*)' for cli in ('claude', 'claude.exe', 'codex', 'codex.exe', 'agy', 'agy.exe')]
 NOTICE_INTERVAL = 5.0  # seconds between automatic notices typed into Agent 0
 TERMINAL_AGENTS = {'claude': 'Claude', 'codex': 'Codex', 'agy': 'Antigravity'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]')
@@ -78,6 +81,27 @@ def clean_terminal_output(text):
         cleaned.append(line)
         last_stripped = stripped
     return '\n'.join(cleaned)
+
+
+# A coding-agent TUI can stay completely silent for minutes while a tool runs (agy printed nothing for 7 minutes during a
+# dotnet test), so "quiet for a few seconds" alone says nothing about being done. The last tool line decides: a tool that is
+# still "Running (...)" after the last finished marker means the agent is busy. (Animated "esc to cancel" / "esc to interrupt"
+# status lines keep producing output and are handled by is_terminal_spinning.)
+BUSY_MARKER = re.compile(r'Running\s*[(…]', re.IGNORECASE)
+DONE_MARKER = re.compile(r'Ran\s*\(|Ran \d+ commands?|(?:Baked|Worked|Churned|Cogitated|Brewed|Crunched|Sautéed|Cooked)\w* for \d|[·•] done \d', re.IGNORECASE)
+IDLE_BUSY_CAP = 1200.0   # seconds of silence after which a "busy" marker is treated as stale and the terminal may be reported
+
+
+def terminal_looks_busy(buffer):
+    """True when the most recent tool/working marker in the terminal output has not been followed by a finished marker."""
+    if not buffer:
+        return False
+    text = BRAILLE_SPINNERS.sub('', ANSI.sub('', bytes(buffer[-12000:]).decode('utf-8', 'replace')))[-6000:]
+    busy = [m.start() for m in BUSY_MARKER.finditer(text)]
+    if not busy:
+        return False
+    done = [m.start() for m in DONE_MARKER.finditer(text)]
+    return busy[-1] > (done[-1] if done else -1)
 
 
 def is_terminal_spinning(buffer):
@@ -164,6 +188,9 @@ def env_block(env):
 
 
 class Session:
+    _last_created = 0.0
+    _created_lock = threading.Lock()
+
     def __init__(self, sid, kind, title, argv, cwd, env, cols=100, rows=30,
                  conversation_id=None, transcript_path=None, session_id=None,
                  on_title=None, on_exit=None, resumed=False):
@@ -183,7 +210,9 @@ class Session:
         self.buffer = bytearray()
         self.base = 0  # absolute offset of buffer[0]
         self.exit_code = None
-        self.created = time.time()
+        with Session._created_lock:
+            now_t = time.time()
+            Session._last_created = self.created = max(now_t, Session._last_created + 1e-6)
         self.last_output_time = self.created
         self.last_input = 0.0
         self.idle = True
@@ -287,7 +316,10 @@ class Session:
     def write(self, data, system=False):
         if not self.alive or self.closed:
             raise OrchError('Terminal has ended')
-        if not system:
+        # Focus in/out (ESC[I / ESC[O), mouse and cursor-position reports come from the browser's terminal, not from a person
+        # typing and not from Agent 0. Counting them re-armed the "finished" notice every time the owner clicked another window.
+        real_input = not isinstance(data, str) or ANSI.sub('', data) != ''
+        if not system and real_input:
             self.last_input = time.time()  # a person is typing: the dashboard must not interleave its own notices
             self.idle = False
             self.idle_notified = False
@@ -307,10 +339,17 @@ class Session:
                     self.input_accumulator = ''  # e.g. Enter on a trust dialog: nothing typed yet
         if isinstance(data, str):
             data = unicodedata.normalize('NFC', data)
-        raw, written = data.encode('utf-8', 'replace'), wintypes.DWORD()
+        written = wintypes.DWORD()
+        # A Vietnamese IME edits a word as Backspace + replacement letter. Written in one go, a TUI reads both bytes in one chunk,
+        # takes it for a paste/escape and eats the letter before the cursor, so each Backspace/DEL goes down the pipe on its own.
+        pieces = [p for p in re.split(r'([])', data) if p]
         with self.lock:
-            if not self.k.WriteFile(self.input, raw, len(raw), ctypes.byref(written), None):
-                raise OrchError('Terminal input failed')
+            for n, piece in enumerate(pieces):
+                raw = piece.encode('utf-8', 'replace')
+                if n and len(pieces) > 1:
+                    time.sleep(0.002)
+                if not self.k.WriteFile(self.input, raw, len(raw), ctypes.byref(written), None):
+                    raise OrchError('Terminal input failed')
 
     def resize(self, cols, rows):
         if self.alive and not self.closed:
@@ -750,6 +789,59 @@ def scan_agy_session(started_time, taken, alive=lambda: True, timeout=900.0, int
     return None
 
 
+_CLAUDE_JSONL_RE = re.compile(r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.jsonl')
+
+
+def resolve_claude_session(sess_id, cwd, started_iso=None, transcript_path=None, claude_home=None):
+    """Resolve the actual Claude Code session ID on disk when /resume was used inside the terminal.
+
+    When a Claude terminal starts with --session-id <uuid> and the user immediately runs /resume inside Claude Code
+    without sending a prompt to <uuid>, Claude never creates <uuid>.jsonl and instead writes to the resumed session's
+    .jsonl file under ~/.claude/projects/<project-slug>/.
+    """
+    if not sess_id or not cwd:
+        return sess_id
+    try:
+        projects_dir = (Path(claude_home) if claude_home else (Path.home() / '.claude')) / 'projects'
+        if not projects_dir.is_dir():
+            return sess_id
+        slug = re.sub(r'[^a-zA-Z0-9]', '-', str(Path(cwd).resolve()))
+        proj_dir = projects_dir / slug
+        if not proj_dir.is_dir():
+            return sess_id
+        if (proj_dir / f'{sess_id}.jsonl').is_file():
+            return sess_id
+        if transcript_path:
+            tp = Path(transcript_path)
+            if tp.is_file():
+                try:
+                    text = tp.read_text(encoding='utf-8', errors='replace')
+                    for m in _CLAUDE_JSONL_RE.finditer(text):
+                        cand = m.group(1)
+                        if SESSION.fullmatch(cand) and (proj_dir / f'{cand}.jsonl').is_file():
+                            return cand
+                except OSError:
+                    pass
+        if started_iso:
+            st = datetime.fromisoformat(str(started_iso)).timestamp()
+            cands = []
+            for f in proj_dir.glob('*.jsonl'):
+                if not SESSION.fullmatch(f.stem):
+                    continue
+                try:
+                    stat = f.stat()
+                except OSError:
+                    continue
+                if stat.st_mtime >= st and stat.st_ctime <= st + 300:
+                    cands.append((stat.st_ctime <= st, stat.st_mtime, f.stem))
+            if cands:
+                cands.sort(reverse=True)
+                return cands[0][2]
+    except Exception:
+        pass
+    return sess_id
+
+
 class Terminals:
     def __init__(self, cfg, db, idle_debounce=None):
         self.cfg = cfg
@@ -776,6 +868,7 @@ class Terminals:
         self.last_send = {}
         self.last_open = -1e9
         self.agy_claim = threading.Lock()
+        self.agent0_opened = set()  # (terminal id, generation) of windows Agent 0 opened itself: the only ones it may close
         self.notice_cursor = None   # (session, last notice id already delivered)
         self.last_notice_sent = 0.0
         self.stop_event = threading.Event()
@@ -834,7 +927,8 @@ class Terminals:
                 buf = bytearray(getattr(s, 'buffer', b''))
         else:
             buf = bytearray(getattr(s, 'buffer', b''))
-        if (now - last_out >= debounce) and (now - last_in >= debounce) and not is_terminal_spinning(buf):
+        if (now - last_out >= debounce) and (now - last_in >= debounce) and not is_terminal_spinning(buf) \
+                and not (terminal_looks_busy(buf) and now - last_out < IDLE_BUSY_CAP):
             s.idle = True
             return True
         return False
@@ -1025,6 +1119,25 @@ class Terminals:
         session.write('\r')
         return {'ok': True, 'terminal': session.id, 'chars': len(line)}
 
+    def close_opened(self, ref):
+        """Agent 0 closes a terminal it opened itself with open_terminal (e.g. replacing an agy that failed twice).
+        Never a window the owner opened, never Agent 0 or a task-watch window. The conversation stays in the history."""
+        session = self.get(ref)
+        key = (session.id, getattr(session, 'created', None))
+        if session.kind != 'agent' or key not in self.agent0_opened:
+            raise OrchError('Agent 0 chỉ đóng được terminal do chính nó mở bằng open_terminal. '
+                            'Cửa sổ do người dùng mở thì nhờ họ tự đóng.')
+        conv_id = getattr(session, 'conversation_id', None)
+        self.close(session.id)
+        self.agent0_opened.discard(key)
+        if conv_id:
+            try:
+                self.db.conversation_update(conv_id, status='closed', last_active=datetime.now(timezone.utc).isoformat())
+            except (OrchError, sqlite3.Error):
+                pass
+        self._audit({'action': 'close', 'terminal': session.id, 'by': 'agent0'})
+        return {'ok': True, 'terminal': session.id, 'closed': True}
+
     def open_agent(self, provider):
         """Agent 0 opens a new interactive agent terminal (claude/codex/agy) in the default repo. Guarded, audited, rate limited.
 
@@ -1038,6 +1151,7 @@ class Terminals:
                 raise OrchError(f'Mở terminal quá nhanh; thử lại sau {wait:.1f} giây.')
             self.last_open = time.monotonic()
         info = self.open('agent', provider)
+        self.agent0_opened.add((info.get('id'), info.get('gen')))
         entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'action': 'open', 'terminal': info.get('id'),
                  'provider': provider}
         with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
@@ -1061,6 +1175,8 @@ class Terminals:
         env['TERM'] = 'xterm-256color'
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
+        env['LANG'] = 'en_US.UTF-8'
+        env['LC_ALL'] = 'en_US.UTF-8'
         return env
 
     def agent0_argv(self, resume=None, session_id=None):
@@ -1074,7 +1190,7 @@ class Terminals:
         mcp = {'mcpServers': {'agent-orchestrator': {
             'type': 'stdio', 'command': sys.executable,
             'args': ['-m', 'agent_orchestrator', '--config', str(self.cfg.file), 'serve'],
-            'env': {'PYTHONPATH': package_root}}}}
+            'env': {'PYTHONPATH': package_root, 'AGENT_STUDIO_REPO': str(self.cfg.repo)}}}}
         path = self.cfg.state / 'agent0-mcp.json'
         path.write_text(json.dumps(mcp, indent=2), encoding='utf-8')
         cmd = self.provider_command('claude')
@@ -1083,7 +1199,8 @@ class Terminals:
         elif session_id:
             cmd = cmd + ['--session-id', session_id]
         argv = cmd + ['--mcp-config', str(path), '--strict-mcp-config',
-                      '--allowed-tools', *('mcp__agent-orchestrator__' + t for t in AGENT0_TOOLS)]
+                      '--allowed-tools', *('mcp__agent-orchestrator__' + t for t in AGENT0_TOOLS),
+                      '--disallowed-tools', *AGENT0_DENIED]
         prompt = Path(package_root) / 'examples' / 'AGENT0-PROMPT.md'
         if prompt.is_file():
             argv += ['--append-system-prompt-file', str(prompt)]
@@ -1119,6 +1236,20 @@ class Terminals:
         transcript_dir = self.cfg.state / 'transcripts'
         transcript_dir.mkdir(parents=True, exist_ok=True)
         transcript_file = transcript_dir / f'{conv_id}.log'
+
+        if kind == 'agent0' and resume:
+            with self.lock:
+                existing = self.sessions.get('agent0')
+                if existing and existing.alive and getattr(existing, 'session_id', None) == resume:
+                    return self.describe(existing)
+            if existing is not None:
+                old_conv_id = getattr(existing, 'conversation_id', None)
+                self.close('agent0')
+                if old_conv_id:
+                    try:
+                        self.db.conversation_update(old_conv_id, status='closed', last_active=datetime.now(timezone.utc).isoformat())
+                    except (OrchError, sqlite3.Error):
+                        pass
 
         with self.lock:
             if kind == 'agent0':
@@ -1188,6 +1319,9 @@ class Terminals:
                 else:
                     sess_id = resume
                     argv = cmd_base
+                if os.name == 'nt' and provider in ('agy', 'codex'):
+                    inner = ' '.join(quote(a) for a in argv)
+                    argv = ['cmd.exe', '/d', '/c', f'chcp 65001 >nul && {inner}']
             else:
                 raise OrchError('Unknown terminal kind')
 
@@ -1272,11 +1406,22 @@ class Terminals:
         except OrchError:
             raise OrchError('Hội thoại không tồn tại')
 
+        sess_id = conv.get('session_id')
+        if sess_id and conv.get('provider') == 'claude':
+            resolved = resolve_claude_session(sess_id, conv.get('cwd'), conv.get('started'), conv.get('transcript_path'))
+            if resolved and resolved != sess_id and SESSION.fullmatch(resolved):
+                sess_id = resolved
+                conv['session_id'] = resolved
+                try:
+                    self.db.conversation_update(conv_id, session_id=resolved)
+                except (OrchError, sqlite3.Error):
+                    pass
+
         # 1. Focus existing alive window if open
         with self.lock:
             for s in self.sessions.values():
                 if s.alive and (getattr(s, 'conversation_id', None) == conv_id or
-                                (conv.get('session_id') and getattr(s, 'session_id', None) == conv['session_id'])):
+                                (sess_id and getattr(s, 'session_id', None) == sess_id)):
                     return {'already_open': True, **self.describe(s)}
 
         # 2. Rate limit
@@ -1286,7 +1431,6 @@ class Terminals:
                 raise OrchError(f'Mở terminal quá nhanh; thử lại sau {wait:.1f} giây.')
             self.last_open = time.monotonic()
 
-        sess_id = conv.get('session_id')
         if not sess_id:
             raise OrchError('Phiên này không có session ID để mở lại. Bạn có thể chọn "Xem lại" để đọc bản ghi.')
         if not isinstance(sess_id, str) or not SESSION.fullmatch(sess_id):
@@ -1325,6 +1469,24 @@ class Terminals:
             pass
         return res
 
+    def restart_agent0(self, cols=100, rows=30):
+        """Reopen Agent 0 so its working folder and its MCP tools follow the repo the dashboard now uses.
+        The old Agent 0 stays in the history (closed). Returns the new window, or None when it was not running."""
+        with self.lock:
+            old = self.sessions.get('agent0')
+        if old is None or self.cfg.data.get('acknowledge_local_execution') is not True:
+            return None
+        conv_id = getattr(old, 'conversation_id', None)
+        self.close('agent0')
+        if conv_id:
+            try:
+                self.db.conversation_update(conv_id, status='closed', last_active=datetime.now(timezone.utc).isoformat())
+            except (OrchError, sqlite3.Error):
+                pass
+        info = self.open('agent0', cols=cols, rows=rows)
+        self._audit({'action': 'restart_agent0', 'repo': str(self.cfg.repo)})
+        return info
+
     def chat_status(self):
         """What a new chat would do, so the dashboard can explain it before asking for confirmation."""
         busy = self.db.chat_busy()
@@ -1333,6 +1495,7 @@ class Terminals:
         reason = chat_busy_message(busy['tasks'], busy['workflows']) if busy['tasks'] or busy['workflows'] else None
         return {'windows': windows, 'tasks': busy['tasks'], 'workflows': busy['workflows'],
                 'can_start': reason is None, 'reason': reason,
+                'since': self.db.chat_since(), 'hidden': self.db.hidden_counts(),
                 'agent0': self.cfg.data.get('acknowledge_local_execution') is True}
 
     def new_chat(self, cols=100, rows=30):
@@ -1463,7 +1626,8 @@ class Terminals:
                     continue
                 _, data, nxt, code = session.read(after, 0)
                 if data or code is not None:
-                    out[sid] = {'data': base64.b64encode(data).decode(), 'next': nxt, 'alive': code is None, 'exit_code': code}
+                    out[sid] = {'data': base64.b64encode(data).decode(), 'next': nxt, 'alive': code is None,
+                                'exit_code': code, 'gen': getattr(session, 'created', None)}
             if out or time.time() >= deadline:
                 return out
             time.sleep(0.03)

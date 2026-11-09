@@ -165,6 +165,7 @@ class Handler(BaseHTTPRequestHandler):
                       '/style.css': ('style.css', 'text/css; charset=utf-8'),
                       '/vendor/xterm.js': ('vendor/xterm.js', 'text/javascript; charset=utf-8'),
                       '/vendor/addon-fit.js': ('vendor/addon-fit.js', 'text/javascript; charset=utf-8'),
+                      '/vendor/addon-webgl.js': ('vendor/addon-webgl.js', 'text/javascript; charset=utf-8'),
                       '/vendor/xterm.css': ('vendor/xterm.css', 'text/css; charset=utf-8')}
             if not mutation and url.path in static:
                 name, mime = static[url.path]
@@ -174,7 +175,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(401, {'error': 'Bridge key required'})
                 terminals, parts = self.server.terminals, [unquote(x) for x in url.path.strip('/').split('/')]
                 if mutation:
-                    # The only writes the bridge allows: Agent 0 opening an interactive agent terminal, and typing one line into one.
+                    # The only writes the bridge allows: Agent 0 opening an interactive agent terminal, typing one line into one,
+                    # and closing a terminal it opened itself.
                     # Agent 0's own tool list does not auto-approve them, so Claude Code asks the owner every time.
                     if parts == ['api', 'bridge', 'terminals', 'open']:
                         body = self.read_json()
@@ -190,7 +192,14 @@ class Handler(BaseHTTPRequestHandler):
                         if set(body) != {'text'}:
                             raise OrchError('Expected only text')
                         return self.reply(200, terminals.send(parts[3], body['text']))
-                    return self.reply(401, {'error': 'Bridge is read-only except opening a terminal and terminal input'})
+                    if len(parts) == 5 and parts[2] == 'terminals' and parts[4] == 'close':
+                        body = self.read_json()
+                        if body is None:
+                            return
+                        if body:
+                            raise OrchError('Không nhận tham số')
+                        return self.reply(200, terminals.close_opened(parts[3]))
+                    return self.reply(401, {'error': 'Bridge is read-only except opening a terminal, terminal input and closing a terminal Agent 0 opened'})
                 if parts == ['api', 'bridge', 'terminals']:
                     return self.reply(200, terminals.snapshot())
                 if len(parts) == 4 and parts[2] == 'terminals':
@@ -379,9 +388,13 @@ class Handler(BaseHTTPRequestHandler):
             e.cfg.data['repo'] = str(p)
             e.cfg.repos['default'] = p
             e.gits = {}
+            agent0 = None
             if hasattr(self.server, 'terminals') and self.server.terminals:
                 self.server.terminals.cfg = e.cfg
-            return self.reply(200, {'ok': True, 'repo': str(p), 'name': p.name, 'base_ref': e.cfg.data.get('base_ref', 'HEAD')})
+                # Agent 0's folder and MCP tools were fixed when it started; reopen it on the new repo.
+                agent0 = self.server.terminals.restart_agent0()
+            return self.reply(200, {'ok': True, 'repo': str(p), 'name': p.name, 'base_ref': e.cfg.data.get('base_ref', 'HEAD'),
+                                    'agent0_restarted': agent0 is not None})
         if path == '/api/repo/folders' and not mutation:
             root = e.cfg.repo
             ignored = {'.git', '.claude', '.codex', '.github', '.venv', '.runtime', '.local-run', '__pycache__', 'node_modules', 'bin', 'obj', 'dist', 'build'}
@@ -409,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
                                    'tests': list(e.cfg.data.get('tests', {}))})
         if path == '/api/workflows':
             if not mutation:
-                return self.reply(200, e.workflows())
+                return self.reply(200, e.workflows(all_chats=query.get('scope', [''])[0] == 'all'))
             if not {'steps'} <= set(body) <= {'steps', 'title', 'require_approval'}:
                 raise OrchError('Expected steps (optional title, require_approval)')
             return self.reply(201, e.plan(body['steps'], body.get('title'), body.get('require_approval', False)))
@@ -445,11 +458,9 @@ class Handler(BaseHTTPRequestHandler):
                     raise OrchError('Expected prompt, allow_paths, tests and provider or agent (optional remember)')
                 return self.reply(201, e.enqueue(body.get('provider'), body['prompt'], body['allow_paths'], body['tests'],
                                                  agent=body.get('agent'), remember=body.get('remember'), repo=body.get('repo')))
-            return self.reply(200, [e.db.get(row['id']) for row in e.db.list(limit=200)])
+            return self.reply(200, [e.db.get(row['id']) for row in e.db.list(limit=200, all_chats=query.get('scope', [''])[0] == 'all')])
         if path == '/api/activity' and not mutation:
-            with e.db.connect() as db:
-                rows = db.execute('SELECT seq,task_id,time,kind FROM events ORDER BY seq DESC LIMIT 40').fetchall()
-            return self.reply(200, [dict(row) for row in rows])
+            return self.reply(200, e.db.activity(40, all_chats=query.get('scope', [''])[0] == 'all'))
         parts = path.strip('/').split('/')
         if len(parts) < 3 or parts[:2] != ['api', 'tasks'] or not ID.fullmatch(parts[2]):
             return self.reply(404, {'error': 'Route not found'})
