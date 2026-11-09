@@ -18,3 +18,13 @@ Debounce 35ms gộp `Backspace + chữ có dấu` vào một lần ghi; agy đ�
 
 ## Việc tiếp theo nếu vẫn lỗi
 Bật log byte thô để xác định lỗi ở phía gửi hay phía vẽ; chuyển input/output sang WebSocket.
+
+## Bổ sung: lệnh `/clear` (và mọi lệnh `/`) không còn báo "đã xong"
+- Nguyên nhân: mọi input đều đặt trạng thái "đang làm việc" (server: `has_active_work`; trình duyệt: `awaitingResponse`), nên output của `/clear` bị coi là kết quả công việc.
+- `terminals.py`: thêm `Session._submits_work`, phát lại phím gõ theo từng dòng; dòng bắt đầu bằng `/` (dùng `_is_slash_command`) không đặt `idle=False`, `idle_notified=False`, `has_active_work=True`.
+- `app.js` (`term.onData`): cùng logic, lệnh `/` không bật `awaitingResponse`.
+- Test mới: `test_slash_commands_do_not_arm_the_finished_notice` trong `tests/test_idle_busy.py`. Chưa thử bằng agy/claude thật.
+
+## Bổ sung: chuột phải dán 2 lần
+- `app.js`: thêm `e.pasteOnce(text)` cho mọi đường dán do app gọi (chuột phải, nút Dán, paste event ngoài textarea); bỏ qua cùng nội dung đến lần hai trong 500ms. Menu chuột phải thêm `stopPropagation` và cờ `pasteReading` chống chạy chồng.
+- Chưa xác định chắc nguyên nhân gốc (chưa tái hiện trên trình duyệt thật); đây là chặn trùng ở phía app. Nếu vẫn dán 2 lần thì lần dán thứ hai đến từ đường nội bộ của xterm (Ctrl+V) và cần log thêm.

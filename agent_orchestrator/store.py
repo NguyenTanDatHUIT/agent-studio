@@ -116,12 +116,26 @@ class Store:
                 'result': json.loads(row['result']) if row['result'] else None,
                 'created': row['created'], 'updated': row['updated']}
 
-    def list(self, limit=50):
+    def list(self, limit=50, all_chats=False):
+        """Latest tasks of the current chat (since the tool was opened or the last 'new chat'); all_chats=True adds older ones."""
         if type(limit) is not int or not 1 <= limit <= 200:
             raise OrchError("limit must be 1..200")
+        since = None if all_chats else self.chat_since()
         with self.connect() as db:
-            return [dict(r) for r in db.execute(
-                'SELECT id,status,created,updated FROM tasks ORDER BY created DESC LIMIT ?', (limit,))]
+            if since:
+                rows = db.execute('SELECT id,status,created,updated FROM tasks WHERE created>=? ORDER BY created DESC LIMIT ?', (since, limit))
+            else:
+                rows = db.execute('SELECT id,status,created,updated FROM tasks ORDER BY created DESC LIMIT ?', (limit,))
+            return [dict(r) for r in rows]
+
+    def activity(self, limit=40, all_chats=False):
+        since = None if all_chats else self.chat_since()
+        with self.connect() as db:
+            if since:
+                rows = db.execute('SELECT seq,task_id,time,kind FROM events WHERE time>=? ORDER BY seq DESC LIMIT ?', (since, limit))
+            else:
+                rows = db.execute('SELECT seq,task_id,time,kind FROM events ORDER BY seq DESC LIMIT ?', (limit,))
+            return [dict(r) for r in rows]
 
     def claim(self, provider=None):
         with self.connect() as db:
@@ -172,9 +186,13 @@ class Store:
             rows = db.execute('SELECT * FROM steps WHERE wf=? ORDER BY seq', (wf_id,)).fetchall()
         return [{**dict(r), 'spec': json.loads(r['spec'])} for r in rows]
 
-    def wf_list(self, limit=30):
+    def wf_list(self, limit=30, all_chats=False):
+        since = None if all_chats else self.chat_since()
         with self.connect() as db:
-            rows = db.execute('SELECT * FROM workflows ORDER BY created DESC LIMIT ?', (limit,)).fetchall()
+            if since:
+                rows = db.execute('SELECT * FROM workflows WHERE created>=? ORDER BY created DESC LIMIT ?', (since, limit)).fetchall()
+            else:
+                rows = db.execute('SELECT * FROM workflows ORDER BY created DESC LIMIT ?', (limit,)).fetchall()
         return [{**dict(r), 'require_approval': bool(r['require_approval']), 'cancelled': bool(r['cancelled'])} for r in rows]
 
     def wf_get(self, wf_id):
@@ -293,6 +311,22 @@ class Store:
                                "WHERE w.cancelled=0 AND s.status IN ('waiting','blocked','released')").fetchone()[0]
         return {'tasks': tasks, 'workflows': flows}
 
+    def chat_since(self):
+        """ISO time when the current chat began, or None before the first reset (then nothing is hidden)."""
+        value = self.setting('chat_since')
+        return value if isinstance(value, str) else None
+
+    def hidden_counts(self):
+        """Work from earlier chats that the default lists leave out: {tasks, review (still awaiting review), workflows}."""
+        since = self.chat_since()
+        if not since:
+            return {'tasks': 0, 'review': 0, 'workflows': 0}
+        with self.connect() as db:
+            tasks = db.execute('SELECT COUNT(*) FROM tasks WHERE created<?', (since,)).fetchone()[0]
+            review = db.execute("SELECT COUNT(*) FROM tasks WHERE created<? AND status='awaiting_review'", (since,)).fetchone()[0]
+            flows = db.execute('SELECT COUNT(*) FROM workflows WHERE created<?', (since,)).fetchone()[0]
+        return {'tasks': tasks, 'review': review, 'workflows': flows}
+
     def reset_chat(self):
         """Start a new chat: numbered agents begin again at 1 and Agent 0's notices are cleared.
 
@@ -308,6 +342,8 @@ class Store:
                 raise OrchError(chat_busy_message(tasks, flows))
             removed = db.execute('DELETE FROM agents').rowcount
             db.execute('DELETE FROM notices')
+            db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                       ('chat_since', json.dumps(now())))
             try:
                 db.execute("DELETE FROM sqlite_sequence WHERE name='agents'")
             except sqlite3.OperationalError:
@@ -362,8 +398,13 @@ class Store:
         clauses = []
         params = []
         if provider:
-            clauses.append('provider=?')
-            params.append(provider)
+            if provider == 'agent0':
+                clauses.append("(kind='agent0' OR provider='agent0')")
+            elif provider == 'claude':
+                clauses.append("(provider='claude' AND kind!='agent0')")
+            else:
+                clauses.append('provider=?')
+                params.append(provider)
         if q:
             clauses.append('(title LIKE ? OR id LIKE ?)')
             params.append(f'%{q}%')

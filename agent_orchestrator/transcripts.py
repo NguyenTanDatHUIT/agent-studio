@@ -49,6 +49,14 @@ def clean_transcript_text(text: str) -> str:
     return CONTROL.sub('', text)
 
 
+def _is_slash_command(text: str) -> bool:
+    s = text.strip()
+    if not s.startswith('/'):
+        return False
+    first = s.split()[0]
+    return '/' not in first[1:]
+
+
 def title_from_keys(keys: str, limit: int = 80):
     """The first line a person typed, as it would look on screen.
 
@@ -63,7 +71,8 @@ def title_from_keys(keys: str, limit: int = 80):
             if line:
                 line.pop()
         elif ch in (chr(13), chr(10)):  # Enter
-            if ''.join(line).strip():
+            cur = ''.join(line).strip()
+            if cur and not _is_slash_command(cur):
                 break
             line.clear()
         elif ch == chr(9):  # Tab
@@ -72,6 +81,8 @@ def title_from_keys(keys: str, limit: int = 80):
             line.append(ch)
     text = unicodedata.normalize('NFC', ''.join(line))
     text = ' '.join(text.split())
+    if _is_slash_command(text):
+        return None
     return text[:limit] or None
 
 

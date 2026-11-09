@@ -594,6 +594,105 @@
     }catch(error){box.checked=!box.checked;throw error;}});
   });
   root.addEventListener('click',e=>{const b=e.target.closest('[data-settings]');if(b)runAction(()=>openSettings(b.dataset.settings));});
+  // ===== Quy tắc điều phối agent (docs/TINH-NANG-QUY-TAC-DIEU-PHOI-AGENT.md): cấu hình Agent 0 điều phối các CMD agent =====
+  const RULE_NUMBERS=[
+    {key:'max_fix_rounds',label:'Số lần sửa trước khi thay cửa sổ',hint:'Agent chưa đạt thì Agent 0 yêu cầu sửa tối đa chừng này lần, sau đó đóng cửa sổ và mở cửa sổ mới.',min:0,max:10},
+    {key:'max_agents_per_task',label:'Số cửa sổ tối đa cho một việc',hint:'Quá số này Agent 0 dừng lại và báo bạn kèm bằng chứng.',min:1,max:10},
+    {key:'max_concurrent_agents',label:'Số agent chạy cùng lúc',hint:'Giới hạn agent tương tác đang sống (không tính Agent 0).',min:1,max:12},
+    {key:'hang_minutes',label:'Phút im lặng coi là treo',hint:'Agent không tạo tệp mới và terminal im quá số phút này thì bị coi là treo.',min:1,max:240},
+    {key:'max_line_chars',label:'Độ dài tối đa một dòng gõ vào terminal',hint:'Dòng dài bị terminal thu gọn thành văn bản dán và mất phần đầu.',min:80,max:4000},
+    {key:'ram_free_warn_mb',label:'Ngưỡng cảnh báo RAM trống (MB)',hint:'Dưới ngưỡng này nên cân nhắc trước khi mở thêm agent.',min:0,max:1000000}];
+  const RULE_BOOLS=[
+    {key:'concurrency_enforced',label:'Chặn mở agent khi đã đủ số chạy cùng lúc',hint:'Tắt: chỉ ghi vào quy tắc, công cụ không chặn (cho vượt tạm thời).'},
+    {key:'single_builder',label:'Chỉ một agent build/chạy test nặng tại một thời điểm',hint:'Các agent khác chỉ viết mã và chờ lệnh.'},
+    {key:'close_on_success',label:'Đóng cửa sổ khi việc đã nghiệm thu đạt',hint:'Trừ khi còn việc kế tiếp cho chính agent đó.'},
+    {key:'prompt_in_file',label:'Prompt giao việc phải ghi thành tệp',hint:'Dòng gõ vào terminal chỉ trỏ tới tệp.'},
+    {key:'report_in_file',label:'Báo cáo cuối ghi ra tệp',hint:'Trong terminal chỉ trả đường dẫn và tối đa 3 dòng tóm tắt.'}];
+  const RULE_TEXTS=[
+    {key:'rules',label:'Quy tắc điều phối',hint:'Nội dung chính Agent 0 phải tuân thủ. Biến dùng được: '},
+    {key:'constraints',label:'Ràng buộc chung dán vào mọi prompt giao agent code',hint:'Điều cấm/bắt buộc Agent 0 phải chép vào mọi tệp prompt. Thêm ràng buộc riêng của dự án ở đây.'},
+    {key:'checklist',label:'Checklist nghiệm thu',hint:'Các phép kiểm Agent 0 phải làm trước khi tuyên bố đạt.'}];
+  const RULE_PROVIDERS={agy:'agy',claude:'claude',codex:'codex'},RULE_EFFORTS={'':'Không chỉ định',low:'low',medium:'medium',high:'high'};
+  const RULES_MARK='<!-- agent-studio-rules v1 -->';
+  const rulesModal=document.createElement('dialog');rulesModal.className='ao-window-dialog ao-rules-dialog';root.append(rulesModal);
+  let rulesView=null;
+  const rulesSel=(opts,value,attr)=>`<select ${attr}>${Object.entries(opts).map(([v,l])=>`<option value="${esc(v)}" ${String(value)===v?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const ruleDefault=def=>`<em class="ao-rule-default">Mặc định: ${esc(def===''||def==null?'trống':def===true?'bật':def===false?'tắt':def)}</em>`;
+  function renderRules(view){
+    rulesView=view;const p=view.params,d=view.default.params,t=view.texts;
+    const running=view.agent0_running,applied=view.applied_digest===view.digest;
+    const status=running?(applied?'Agent 0 đang chạy đã nhận bản quy tắc này.':'Agent 0 đang chạy chưa nhận bản mới. Khởi động lại Agent 0 để áp dụng.'):'Agent 0 chưa chạy: bản này sẽ được dùng khi mở Agent 0.';
+    const nums=RULE_NUMBERS.map(f=>`<label class="ao-rule-field"><strong>${esc(f.label)}</strong><input type="number" inputmode="numeric" min="${f.min}" max="${f.max}" value="${esc(p[f.key])}" data-rp="${f.key}">${ruleDefault(d[f.key])}<small>${esc(f.hint)}</small></label>`).join('');
+    const providers=`<label class="ao-rule-field"><strong>CLI mặc định</strong>${rulesSel(RULE_PROVIDERS,p.default_provider,'data-rp="default_provider"')}${ruleDefault(d.default_provider)}<small>Dùng khi bạn không nói rõ.</small></label>
+      <label class="ao-rule-field"><strong>Chính sách subagent</strong>${rulesSel({allowed:'Cho phép (subagent mặc định của CLI)',off:'Tắt'},p.subagent_policy,'data-rp="subagent_policy"')}${ruleDefault(d.subagent_policy==='allowed'?'Cho phép':'Tắt')}<small>Subagent chạy trong cùng cửa sổ, không mở thêm cửa sổ.</small></label>`;
+    const models=Object.keys(RULE_PROVIDERS).map(k=>`<div class="ao-rule-field ao-rule-model"><strong>Model mong đợi · ${esc(k)}</strong><div class="ao-rule-pair"><input type="text" maxlength="80" value="${esc(p.provider_models[k].model)}" placeholder="Ví dụ ${esc(d.provider_models[k].model||'tên model')}" data-rp-model="${k}" aria-label="Model ${esc(k)}">${rulesSel(RULE_EFFORTS,p.provider_models[k].effort,`data-rp-effort="${k}" aria-label="Mức suy luận ${esc(k)}"`)}</div>${ruleDefault(d.provider_models[k].model?d.provider_models[k].model+' · '+d.provider_models[k].effort:'trống')}<small>Agent 0 đọc terminal để xác nhận trước khi giao việc; để trống nếu không cần.</small></div>`).join('');
+    const bools=RULE_BOOLS.map(f=>`<label class="ao-setting"><input type="checkbox" data-rp="${f.key}" ${p[f.key]?'checked':''}><span><strong>${esc(f.label)}</strong><small>${esc(f.hint)}</small></span></label>`).join('');
+    const texts=RULE_TEXTS.map(f=>`<div class="ao-rule-text"><div class="ao-rule-text-head"><strong>${esc(f.label)}</strong><small data-rt-count="${f.key}">${t[f.key].length}/${view.text_limit}</small></div><small>${esc(f.hint)}${f.key==='rules'?esc(view.variables.map(v=>'{'+v+'}').join(' ')):''}</small><textarea class="ao-rules-text" rows="${f.key==='rules'?14:7}" maxlength="${view.text_limit}" data-rt="${f.key}" spellcheck="false">${esc(t[f.key])}</textarea></div>`).join('');
+    const hist=view.history.length?view.history.map((h,i)=>`<li><span>${esc(String(h.time||'').replace('T',' ').slice(0,19))}</span><button type="button" class="ao-link cursor-interaction" data-rules-restore="${i}">Khôi phục</button></li>`).join(''):'<li class="ao-empty">Chưa có bản cũ nào.</li>';
+    rulesModal.innerHTML=`<div class="ao-rules-body"><div class="ao-rules-head"><h2>Quy tắc điều phối agent</h2><button type="button" class="ao-settings-close cursor-interaction" data-rules-close aria-label="Đóng"><i data-lucide="x" aria-hidden="true"></i></button></div>
+      <p class="ao-sub">Cách Agent 0 giao việc cho các cửa sổ CMD, nghiệm thu, sửa và thay cửa sổ. Lưu xong có hiệu lực cho phiên Agent 0 kế tiếp (mở mới, khởi động lại hoặc mở lại phiên).</p>
+      <div class="ao-notice ao-rules-status" data-rules-status><span>${esc(status)}</span>${running&&!applied?'<button type="button" class="ao-btn cursor-interaction" data-rules-restart>Khởi động lại Agent 0 để áp dụng</button>':''}</div>
+      <h3>Tham số</h3><div class="ao-rules-grid">${nums}${providers}${models}
+      <label class="ao-rule-field ao-rule-wide"><strong>Thư mục lưu tệp prompt và báo cáo</strong><input type="text" maxlength="260" value="${esc(p.prompts_dir)}" placeholder="Để trống: thư mục riêng của công cụ, nằm ngoài repo" data-rp="prompts_dir"><small>Phải là đường dẫn tuyệt đối nằm ngoài repo (để không bị commit). Agent phải đọc và ghi được thư mục này.</small></label></div>
+      <div class="ao-rules-checks">${bools}</div>
+      <h3>Nội dung</h3>${texts}
+      <div class="ao-actions ao-rules-actions"><button type="button" class="ao-btn ao-primary cursor-interaction" data-rules-save>Lưu</button><button type="button" class="ao-btn cursor-interaction" data-rules-preview>Xem trước</button><button type="button" class="ao-btn cursor-interaction" data-rules-reset>Khôi phục mặc định</button><button type="button" class="ao-btn cursor-interaction" data-rules-export>Xuất .md</button><button type="button" class="ao-btn cursor-interaction" data-rules-import>Nhập .md</button><input type="file" accept=".md,text/markdown,text/plain" data-rules-file hidden></div>
+      <div data-rules-preview-box hidden><h3>Xem trước: nội dung Agent 0 sẽ nhận</h3><pre class="ao-code ao-rules-preview" data-rules-preview-text></pre></div>
+      <h3>Lịch sử (20 bản gần nhất)</h3><ul class="ao-rules-history">${hist}</ul></div>`;
+    icons();
+  }
+  function collectRules(){
+    const params={provider_models:{}},texts={};let bad=null;
+    rulesModal.querySelectorAll('[data-rp]').forEach(el=>{
+      const k=el.dataset.rp;el.removeAttribute('aria-invalid');
+      if(el.type==='checkbox')params[k]=el.checked;
+      else if(el.type==='number'){const v=el.value.trim(),n=Number(v);if(v===''||!Number.isInteger(n)||n<Number(el.min)||n>Number(el.max)){el.setAttribute('aria-invalid','true');bad=bad||`${k}: nhập số nguyên từ ${el.min} đến ${el.max}.`;}else params[k]=n;}
+      else params[k]=el.value;
+    });
+    rulesModal.querySelectorAll('[data-rp-model]').forEach(el=>{params.provider_models[el.dataset.rpModel]={model:el.value,effort:rulesModal.querySelector(`[data-rp-effort="${el.dataset.rpModel}"]`).value};});
+    rulesModal.querySelectorAll('[data-rt]').forEach(el=>{texts[el.dataset.rt]=el.value;});
+    if(bad)throw new Error('Giá trị chưa hợp lệ. '+bad);
+    return {params,texts};
+  }
+  const FENCE='`'.repeat(3);
+  function rulesToMarkdown(view){
+    let body;try{body=collectRules();}catch(_){body={params:view.params,texts:view.texts};}
+    return `# Quy tắc điều phối agent\n\n${RULES_MARK}\n\n## Tham số\n\n${FENCE}json\n${JSON.stringify(body.params,null,2)}\n${FENCE}\n\n## Quy tắc điều phối\n\n${body.texts.rules}\n\n## Ràng buộc chung\n\n${body.texts.constraints}\n\n## Checklist nghiệm thu\n\n${body.texts.checklist}\n`;
+  }
+  function parseRulesMarkdown(text){
+    text=text.replace(/\r\n/g,'\n');
+    if(!text.includes(RULES_MARK))throw new Error('Tệp không phải bản xuất của Quy tắc điều phối agent (thiếu dấu nhận diện).');
+    const parts=text.split(/\n## /).slice(1),map={};
+    for(const part of parts){const nl=part.indexOf('\n');map[part.slice(0,nl).trim()]=part.slice(nl+1).replace(/^\n+/,'').replace(/\s+$/,'');}
+    for(const n of ['Tham số','Quy tắc điều phối','Ràng buộc chung','Checklist nghiệm thu'])if(!(n in map))throw new Error('Thiếu mục "'+n+'".');
+    const m=map['Tham số'].match(new RegExp(FENCE+'json\\n([\\s\\S]*?)\\n'+FENCE));if(!m)throw new Error('Mục "Tham số" thiếu khối JSON.');
+    let params;try{params=JSON.parse(m[1]);}catch(_){throw new Error('Khối JSON ở mục "Tham số" không đọc được.');}
+    if(!params||typeof params!=='object'||Array.isArray(params))throw new Error('Khối JSON ở mục "Tham số" không hợp lệ.');
+    return {params,texts:{rules:map['Quy tắc điều phối'],constraints:map['Ràng buộc chung'],checklist:map['Checklist nghiệm thu']}};
+  }
+  async function openRules(){renderRules(await api('/orchestration-rules'));if(!rulesModal.open)rulesModal.showModal();}
+  rulesModal.addEventListener('input',e=>{const t=e.target.closest('[data-rt]');if(!t)return;const c=rulesModal.querySelector(`[data-rt-count="${t.dataset.rt}"]`);if(c)c.textContent=t.value.length+'/'+rulesView.text_limit;});
+  rulesModal.addEventListener('change',e=>{
+    const f=e.target.closest('[data-rules-file]');if(!f||!f.files[0])return;const file=f.files[0];f.value='';
+    runAction(async()=>{
+      if(file.size>200000)throw new Error('Tệp quá lớn (tối đa 200 KB).');
+      const data=parseRulesMarkdown(await file.text());
+      renderRules({...rulesView,params:{...rulesView.params,...data.params,provider_models:{...rulesView.params.provider_models,...(data.params.provider_models||{})}},texts:data.texts});
+      notify('Đã nạp nội dung từ tệp. Kiểm tra rồi bấm Lưu để áp dụng.');
+    });
+  });
+  rulesModal.addEventListener('click',e=>{
+    const b=e.target.closest('button');if(!b)return;
+    if('rulesClose' in b.dataset){rulesModal.close();return;}
+    if('rulesSave' in b.dataset)runAction(async()=>{const v=await api('/orchestration-rules',collectRules());renderRules(v);notify('Đã lưu quy tắc. Có hiệu lực cho phiên Agent 0 kế tiếp.');});
+    else if('rulesPreview' in b.dataset)runAction(async()=>{const r=await api('/orchestration-rules/preview',collectRules());const box=rulesModal.querySelector('[data-rules-preview-box]');box.hidden=false;rulesModal.querySelector('[data-rules-preview-text]').textContent=r.preview;if(r.unknown_variables.length)notify('Có biến không nhận ra, sẽ giữ nguyên chữ: '+r.unknown_variables.map(v=>'{'+v+'}').join(', '),true);box.scrollIntoView({block:'nearest'});});
+    else if('rulesReset' in b.dataset){if(!confirm('Khôi phục toàn bộ tham số và nội dung về mặc định? Bản hiện tại được giữ trong Lịch sử.'))return;runAction(async()=>{renderRules(await api('/orchestration-rules/reset',{}));notify('Đã khôi phục mặc định.');});}
+    else if('rulesRestore' in b.dataset)runAction(async()=>{renderRules(await api('/orchestration-rules/restore',{index:Number(b.dataset.rulesRestore)}));notify('Đã khôi phục bản lịch sử. Bản trước đó được giữ trong Lịch sử.');});
+    else if('rulesRestart' in b.dataset){if(!confirm('Khởi động lại Agent 0? Cuộc trò chuyện hiện tại vẫn nằm trong Lịch sử.'))return;runAction(async()=>{await api('/orchestration-rules/restart-agent0',{});await syncTerms();renderRules(await api('/orchestration-rules'));notify('Đã khởi động lại Agent 0 với quy tắc mới.');});}
+    else if('rulesExport' in b.dataset){const blob=new Blob([rulesToMarkdown(rulesView)],{type:'text/markdown'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='quy-tac-dieu-phoi-agent.md';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+    else if('rulesImport' in b.dataset)rulesModal.querySelector('[data-rules-file]').click();
+  });
+  root.addEventListener('click',e=>{if(e.target.closest('[data-action="open-orch-rules"]'))runAction(openRules);});
   const collapsed=new Set();
   root.addEventListener('click',e=>{const b=e.target.closest('[data-collapse]');if(!b)return;const id=b.dataset.collapse;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);renderWindows();refreshWindows();});
   function renderLive(){
@@ -727,6 +826,15 @@
     const el=document.createElement('div');el.className='ao-term-el';
     const e={term,fit,el,after:0,dead:false,id:info.id,readonly:info.kind==='worker',queue:Promise.resolve(),agent:info.agent,provider:info.provider,title:info.title,kind:info.kind,gen:info.gen};terms.set(info.id,e);
 
+    // Mọi đường dán (Ctrl+V, chuột phải, nút Dán) đi qua đây; cùng một nội dung đến lần hai trong 500ms là sự kiện trùng nên bỏ qua.
+    e.pasteOnce=text=>{
+      if(!text||e.readonly)return;
+      const now=Date.now();
+      if(e.lastPaste&&e.lastPaste.text===text&&now-e.lastPaste.t<500)return;
+      e.lastPaste={text,t:now};
+      term.paste(text);
+    };
+
     // Bắt phím tắt Paste / Copy trên terminal
     term.attachCustomKeyEventHandler(ev=>{
       if((ev.ctrlKey&&(ev.key==='v'||ev.key==='V'))||(ev.shiftKey&&ev.key==='Insert')){
@@ -754,19 +862,21 @@
       if(ev.target&&ev.target.classList&&ev.target.classList.contains('xterm-helper-textarea'))return;
       ev.preventDefault();
       const text=(ev.clipboardData||window.clipboardData)?.getData('text');
-      if(text)term.paste(text);
+      e.pasteOnce(text);
     });
 
     // Chuột phải: bôi đen thì copy, không bôi đen thì paste
     el.addEventListener('contextmenu',async ev=>{
+      ev.stopPropagation();
+      if(e.pasteReading)return;
       if(term.hasSelection()){
         try{await navigator.clipboard.writeText(term.getSelection());}catch(_){}
       }else if(!e.readonly){
         ev.preventDefault();
+        e.pasteReading=true;
         try{
-          const text=await navigator.clipboard.readText();
-          if(text)term.paste(text);
-        }catch(_){}
+          e.pasteOnce(await navigator.clipboard.readText());
+        }catch(_){}finally{e.pasteReading=false;}
       }
     });
 
@@ -792,7 +902,14 @@
 
     term.onData(d=>{
       if(e.readonly)return;
-      if(e.id!=='agent0'&&(d.includes('\r')||d.includes('\n'))){
+      // Lệnh gạch chéo (/clear, /model...) do CLI tự xử lý: không coi là giao việc nên không báo "đã xong".
+      let submitsWork=false;
+      for(const ch of d.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g,'')){
+        if(ch==='\x7f'||ch==='\b'){e.line=(e.line||'').slice(0,-1);}
+        else if(ch==='\r'||ch==='\n'){const t=(e.line||'').trim();e.line='';if(!/^\/[^\s\/]*(\s|$)/.test(t))submitsWork=true;}
+        else if(ch>=' ')e.line=((e.line||'')+ch).slice(-500);
+      }
+      if(e.id!=='agent0'&&submitsWork){
         e.awaitingResponse=true;
         e.notified=false;
         e.streamBytes=0;
@@ -1289,7 +1406,7 @@
       if(e&&!e.readonly){
         navigator.clipboard.readText().then(text=>{
           if(text){
-            e.term.paste(text);
+            e.pasteOnce(text);
             e.term.focus();
             notify('Đã dán vào terminal.');
           }

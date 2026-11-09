@@ -166,6 +166,14 @@ Một "cuộc trò chuyện" là một lần chạy công cụ. Số hiệu agen
 - `Store.reset_chat()`: trong một giao dịch `BEGIN IMMEDIATE`, kiểm tra không còn task `queued/running` và không còn workflow chưa hủy có bước `waiting/blocked/released`, rồi `DELETE FROM agents`, xóa `notices` và đặt lại `sqlite_sequence` của `agents`. Nếu còn việc đang chạy thì ném `OrchError` (không xóa gì). `Store.chat_busy()` trả số task/workflow đang chạy.
 - `serve_web()` gọi `reset_chat()` khi khởi động (bỏ qua nếu bị từ chối): mỗi lần mở công cụ là cuộc trò chuyện mới, số hiệu bắt đầu từ 1.
 - `Terminals.new_chat()` (nút "Cuộc trò chuyện mới"): kiểm tra bận trước khi đóng bất cứ thứ gì; đóng từng cửa sổ (`close(sid)`, không dừng bộ giám sát); đặt các hội thoại đang mở thành `closed` (vẫn nằm trong lịch sử); gọi `reset_chat()`; xóa `dismissed/skipped/agent_views/notice_cursor`; mở lại Agent 0 (nếu `acknowledge_local_execution`); ghi audit `new_chat`.
-- API: `GET /api/chat` trả `{windows, tasks, workflows, can_start, reason, agent0}` (để hộp thoại giải thích trước khi xác nhận); `POST /api/chat/new` body đúng `{"confirm": true}` (tùy chọn `cols`, `rows`) trả `{closed, agents_removed, agent0}`. Là mutation (token + Origin), không có trên bridge của Agent 0.
+- API: `GET /api/chat` trả `{windows, tasks, workflows, can_start, reason, agent0, since, hidden}` (để hộp thoại giải thích trước khi xác nhận); `POST /api/chat/new` body đúng `{"confirm": true}` (tùy chọn `cols`, `rows`) trả `{closed, agents_removed, agent0}`. Là mutation (token + Origin), không có trên bridge của Agent 0.
 - Resume sau khi đặt lại số: `open(kind='agent', agent_n=...)` chỉ dùng lại số cũ khi hàng `agents` đó còn, cùng provider, loại `terminal` và không có phiên đang sống cùng khóa; ngược lại cấp số kế tiếp. Nhờ vậy phiên cũ mở lại không ghi đè Agent 1 mới.
 - Giao diện: Agent 0 dùng lại id `agent0` cho tiến trình mới, nên cửa sổ được dựng lại nhờ `gen` (xem `docs/UI-RULES.md`, mục 2b).
+
+### 6.1. Phạm vi theo cuộc trò chuyện
+
+- `reset_chat()` ghi mốc `settings.chat_since` (ISO, cùng giao dịch với việc xóa `agents`). Một lần reset bị từ chối (còn việc đang chạy) **không** dời mốc.
+- `Store.list()`, `Store.wf_list()`, `Store.activity()` chỉ trả bản ghi có `created`/`time` >= `chat_since` (chưa có mốc thì không lọc). Tham số `all_chats=True` bỏ lọc. `Store.hidden_counts()` trả `{tasks, review, workflows}` của phần bị ẩn; `review` là số task cũ còn `awaiting_review`.
+- API: `GET /api/tasks`, `/api/activity`, `/api/workflows` nhận `?scope=all`. `GET /api/chat` trả thêm `since` và `hidden`. Mở một task theo id (`/api/tasks/<id>`) không bị lọc.
+- Engine tự thả bước workflow dùng `wf_list(100, all_chats=True)`: việc dở của cuộc trước vẫn chạy tiếp dù bị ẩn khỏi danh sách. MCP (`list_tasks`, `list_workflows`) dùng mặc định (cuộc hiện tại).
+- Giao diện: ghi chú `data-scope-note` ở tab Nhiệm vụ và nút `data-scope-toggle`; `state.allChats` quyết định có thêm `?scope=all` hay không.

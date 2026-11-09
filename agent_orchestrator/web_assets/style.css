@@ -228,6 +228,7 @@ html,body{margin:0;padding:0;background:#f5f7f9}body{font-family:'Segoe UI',Aria
 #ao-studio .agent-flow-section .flow-node--agent   { left: 28px;   top: 140px; width: 168px; height: 132px; }
 #ao-studio .agent-flow-section .flow-node--claude  { left: 264px;  top: 68px;  width: 218px; height: 136px; }
 #ao-studio .agent-flow-section .flow-node--codex   { left: 264px;  top: 250px; width: 218px; height: 136px; }
+#ao-studio .agent-flow-section .flow-node--agy     { left: 264px;  top: 140px; width: 218px; height: 136px; }
 #ao-studio .agent-flow-section .flow-node--test-1  { left: 534px;  top: 68px;  width: 194px; height: 136px; }
 #ao-studio .agent-flow-section .flow-node--test-2  { left: 534px;  top: 250px; width: 194px; height: 136px; }
 #ao-studio .agent-flow-section .flow-node--review  { left: 800px;  top: 140px; width: 198px; height: 132px; }
@@ -839,3 +840,51 @@ html[data-palette="classic"]{--page-scroll:light-dark(#c3ccd4,#415269);--page-sc
 #ao-studio .ao-chat-dialog{max-width:460px;width:calc(100% - 32px)}
 #ao-studio .ao-chat-effects{margin:10px 0 14px;padding-left:20px;display:grid;gap:6px;color:var(--ao-text);font-size:13px;line-height:1.5}
 #ao-studio .ao-chat-effects strong{font-weight:600}
+
+/* Nút "Cuộc trò chuyện mới" nằm ngay trên thanh công cụ CMD; cửa sổ hẹp chỉ còn biểu tượng */
+#ao-studio .ao-console-bar-actions [data-console-action="newchat"]{min-height:32px;padding:6px 10px;gap:6px;white-space:nowrap}
+@media(max-width:760px){
+  #ao-studio .ao-console-bar-actions [data-console-action="newchat"] .ao-btn-label{display:none}
+  #ao-studio .ao-console-bar-actions [data-console-action="newchat"]{padding:6px;min-width:33px;justify-content:center}
+}
+
+/* Lịch sử là một mục menu (trang), không còn là hộp thoại */
+#ao-studio .ao-history-page .ao-history-toolbar{padding:18px 22px 14px}
+#ao-studio .ao-history-page .ao-history-list{max-height:none;margin:0 22px 22px}
+@media(max-width:720px){
+  #ao-studio .ao-history-page .ao-history-toolbar{padding:14px 14px 12px}
+  #ao-studio .ao-history-page .ao-history-list{margin:0 14px 14px}
+}
+
+/* Nhiệm vụ của các cuộc trò chuyện trước bị ẩn mặc định, luôn có lối bật lại */
+#ao-studio .ao-scope-note{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:10px 22px;background:var(--ao-tint);color:var(--ao-text);font-size:12px;border-bottom:1px solid var(--ao-line)}
+#ao-studio .ao-scope-note[hidden]{display:none}
+
+/* Quy tắc điều phối agent (hộp thoại cài đặt lớn). Ô nhập chỉ chỉnh bố cục; kiểu dáng đến từ khối QUY TẮC FORM CONTROL. */
+#ao-studio .ao-rules-dialog{max-width:900px;width:calc(100% - 32px);max-height:90vh;overflow:auto;padding:20px}
+#ao-studio .ao-rules-body{display:grid;gap:14px;min-width:0}
+#ao-studio .ao-rules-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#ao-studio .ao-rules-head h2,#ao-studio .ao-rules-body h3{margin:0}
+#ao-studio .ao-rules-body h3{font-size:14px;padding-top:6px;border-top:1px solid var(--ao-line)}
+#ao-studio .ao-rules-status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between}
+#ao-studio .ao-rules-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+#ao-studio .ao-rule-field{display:grid;gap:5px;align-content:start;min-width:0}
+#ao-studio .ao-rule-field>strong,#ao-studio .ao-rule-text-head strong{font-size:13px;font-weight:600;color:var(--ao-text);line-height:1.35}
+#ao-studio .ao-rule-field small,#ao-studio .ao-rule-text small{color:var(--ao-muted);font-size:12px;line-height:1.45}
+#ao-studio .ao-rule-default{color:var(--ao-muted);font-size:12px;font-style:normal;opacity:.8}
+#ao-studio .ao-rule-field input:not([type="checkbox"]),#ao-studio .ao-rule-field select{width:100%}
+#ao-studio .ao-rule-pair{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px}
+#ao-studio .ao-rule-wide{grid-column:1/-1}
+#ao-studio .ao-rules-checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));column-gap:20px}
+#ao-studio .ao-rule-text{display:grid;gap:5px;min-width:0}
+#ao-studio .ao-rule-text-head{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+#ao-studio .ao-rules-text{width:100%;min-height:140px;resize:vertical;font-family:Consolas,"Courier New",monospace;font-size:12px}
+#ao-studio .ao-rules-actions{display:flex;flex-wrap:wrap;gap:8px}
+#ao-studio .ao-rules-preview{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+#ao-studio .ao-rules-history{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:12px}
+#ao-studio .ao-rules-history li{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--ao-line)}
+@media(max-width:620px){#ao-studio .ao-rules-dialog{padding:14px}#ao-studio .ao-rule-pair{grid-template-columns:1fr}}
+
+/* QUY TẮC HỘP THOẠI: một hộp thoại chưa mở phải ẩn hẳn. Các lớp riêng (ví dụ .ao-transcript-dialog{display:flex}) từng đè
+   quy tắc mặc định của <dialog> và làm hộp thoại đóng hiện ra ở cuối trang. Quy tắc này thắng mọi display của lớp riêng. */
+#ao-studio dialog:not([open]){display:none}

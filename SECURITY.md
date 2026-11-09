@@ -128,3 +128,7 @@ Hệ thống lưu lại các bản ghi màn hình (transcripts) để người d
 ### Cuộc trò chuyện mới
 
 `POST /api/chat/new` (đóng mọi terminal, xóa bảng đánh số agent, mở lại Agent 0) là thao tác ghi: cần Bearer token và Origin hợp lệ như mọi mutation của dashboard, body phải đúng `{"confirm": true}` (thiếu hoặc sai thì từ chối trước khi làm gì), không có trên bridge nên Agent 0 không tự gọi được, và bị từ chối khi còn nhiệm vụ hoặc workflow đang chạy. Có ghi `terminal-audit.jsonl` (`new_chat`, chỉ số lượng, không nội dung). Lịch sử và transcript của các cửa sổ đã đóng được giữ nguyên (xóa riêng bằng chức năng Xóa trong Lịch sử).
+
+### Agent 0 không tự tạo agent
+
+Agent 0 chạy ở chế độ tự động (auto mode) nên `--allowed-tools` chỉ duyệt trước các công cụ MCP, không giới hạn công cụ có sẵn. Vì vậy Agent 0 được khởi chạy với `--disallowed-tools Agent Task Workflow Bash(claude:*) Bash(codex:*) Bash(agy:*)` (cả dạng `.exe`): nó không thể tự sinh subagent hoặc chạy một agent khác ngay trong terminal của mình, và phải giao việc qua `enqueue_task`/`open_terminal` (có phạm vi, có test, có review, có cửa sổ CMD riêng). Đây là lớp chặn bằng cờ, không phải hộp cát: Agent 0 vẫn có Bash và các công cụ đọc/sửa tệp trong thư mục làm việc của nó. Tiến trình MCP của Agent 0 nhận repo từ `AGENT_STUDIO_REPO` do dashboard đặt (xem `docs/CONFIGURATION.md`).

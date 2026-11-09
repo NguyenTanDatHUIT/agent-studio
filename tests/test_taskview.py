@@ -428,7 +428,8 @@ class BridgeRoutes(Fixture):
     def test_bridge_stays_read_only_except_input(self):
         self.assertEqual(self.post('/api/bridge/terminals', {'x': 1})[0], 401)
         self.assertEqual(self.post('/api/bridge/terminals/codex-1', {'x': 1})[0], 401)
-        self.assertEqual(self.post('/api/bridge/terminals/codex-1/close', {})[0], 401)
+        # Agent 0 may only close a terminal it opened itself; codex-1 was not (its window must stay)
+        self.assertEqual(self.post('/api/bridge/terminals/codex-1/close', {})[0], 400)
         self.assertIn('codex-1', self.server.terminals.sessions)
 
     def test_open_terminal_requires_key_and_only_a_known_provider(self):

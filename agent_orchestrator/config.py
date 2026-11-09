@@ -31,6 +31,11 @@ class Config:
         self.file = Path(filename).resolve()
         try:
             self.data = json.loads(self.file.read_text(encoding='utf-8-sig'))
+            # The dashboard lets the owner switch repo at runtime. It tells the MCP process Agent 0 talks to through this
+            # variable, so Agent 0 and its tools work on the same repo as the dashboard (the config file is not rewritten).
+            override = os.environ.get('AGENT_STUDIO_REPO', '').strip()
+            if override:
+                self.data['repo'] = str(Path(override).resolve(strict=True))
             self.repo = Path(self.data['repo']).resolve(strict=True)
             self.state = Path(self.data['state_dir']).resolve()
         except (OSError, ValueError, KeyError) as exc:

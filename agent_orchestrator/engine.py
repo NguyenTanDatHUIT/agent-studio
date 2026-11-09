@@ -314,7 +314,7 @@ class Engine:
         """Advance every open workflow: queue steps whose dependencies finished, block steps that cannot proceed.
         Idempotent and safe to call from several processes at once (transitions are atomic)."""
         try:
-            flows = [w for w in self.db.wf_list(100) if not w['cancelled']]
+            flows = [w for w in self.db.wf_list(100, all_chats=True) if not w['cancelled']]
         except sqlite3.Error:
             return
         for wf in flows:
@@ -406,8 +406,8 @@ class Engine:
                  else 'blocked' if any(i['status'] == 'blocked' for i in out) else 'running')
         return {'id': wf['id'], 'title': wf['title'], 'state': state, 'require_approval': wf['require_approval'], 'steps': out}
 
-    def workflows(self, limit=30):
-        return [self.workflow(w['id']) for w in self.db.wf_list(limit)]
+    def workflows(self, limit=30, all_chats=False):
+        return [self.workflow(w['id']) for w in self.db.wf_list(limit, all_chats=all_chats)]
 
     def cancel_workflow(self, wf_id):
         self.db.wf_cancel(wf_id)

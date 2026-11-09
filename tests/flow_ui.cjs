@@ -22,7 +22,7 @@ const {JSDOM}=require('jsdom');
   let tasks=[task(a,'claude','queued'),task(b,'codex','queued')],events=[];
   let agent0={connected:false},sessions=[],runners={managed:false,providers:{}},agents=[{agent:2,name:'codex 2',provider:'codex',kind:'queue',remember_context:true}],defaultRemember=true,posts=[],failNext=null;
   // Field names are exactly what /api/conversations returns (store.conversations + `live`), so a rename is caught here.
-  let chatStatus={windows:3,tasks:0,workflows:0,can_start:true,reason:null,agent0:true},chatPosts=0;
+  let chatStatus={windows:3,tasks:0,workflows:0,can_start:true,reason:null,agent0:true},chatPosts=0,requests=[];
   let conversations=[
     {id:'conv-1',terminal_key:'codex-1',session_id:'s-1',kind:'agent',provider:'codex',agent_n:1,title:'Khởi tạo dự án',task_id:null,cwd:'C:/fixture',status:'closed',live:false,started:'2026-11-08T00:00:00+00:00',last_active:'2026-11-08T00:10:00+00:00',transcript_path:'x'},
     {id:'conv-2',terminal_key:'claude-2',session_id:'s-2',kind:'agent',provider:'claude',agent_n:2,title:'Sửa lỗi test',task_id:a,cwd:'C:/fixture',status:'failed',live:false,started:'2026-11-07T12:00:00+00:00',last_active:'2026-11-07T12:30:00+00:00',transcript_path:'y'},
@@ -30,14 +30,14 @@ const {JSDOM}=require('jsdom');
   ];
   const routes=input=>{
     if(input==='/api/config')return {repo:'C:/fixture',base_ref:'HEAD',providers:{claude:true,codex:true},tests:['unit'],execution_enabled:true};
-    if(input==='/api/tasks')return tasks;
-    if(input==='/api/activity')return events;
+    if(input==='/api/tasks'||input==='/api/tasks?scope=all')return tasks;
+    if(input==='/api/activity'||input==='/api/activity?scope=all')return events;
     if(input==='/api/runners')return runners;
     if(input==='/api/agent0')return agent0;
     if(input==='/api/terminals')return sessions;
     if(input==='/api/agents')return agents;
     if(input==='/api/settings')return {default_remember:defaultRemember};
-    if(input==='/api/workflows')return [];
+    if(input==='/api/workflows'||input==='/api/workflows?scope=all')return [];
     if(input==='/api/chat')return chatStatus;
     if(typeof input==='string'&&input.startsWith('/api/conversations')){
       if(input.includes('/transcript'))return {lines:[{seq:1,timestamp:'2026-11-08T00:01:00Z',text:'$ codex task\nTask started'}],next_after:1,has_more:false};
@@ -48,6 +48,7 @@ const {JSDOM}=require('jsdom');
     return {available:false,text:'',truncated:false};
   };
   w.fetch=async (input,init)=>{
+    requests.push(String(input));
     if(init&&init.method==='POST'){
       posts.push({input,body:JSON.parse(init.body)});
       if(failNext){const error=failNext;failNext=null;return {ok:false,status:400,json:async()=>({error})};}
@@ -243,11 +244,15 @@ const {JSDOM}=require('jsdom');
   assert(node('claude').includes('Thất bại')&&!node('claude').includes('✓ Code đã sẵn sàng'),'failed task is not marked as ready');
 
   // History modal and transcript viewer verification
-  const histBtn=d.querySelector('[data-console-action="history"]');
-  assert(histBtn,'history button is mounted in toolbar');
-  histBtn.click();await flush();
-  const histModal=d.querySelector('.ao-history-dialog');
-  assert(histModal&&histModal.hasAttribute('open'),'history dialog opens on click');
+  // History is a sidebar menu entry (a page), not a button inside the settings menu or a modal.
+  const histNav=d.querySelector('.ao-nav [data-page="history"]');
+  assert(histNav&&histNav.textContent.includes('Lịch sử'),'history is a menu item in the sidebar');
+  assert(!d.querySelector('[data-console-action="history"]'),'no history button is left in the toolbar or settings menu');
+  assert(!d.querySelector('.ao-console-settings-panel')||!d.querySelector('.ao-console-settings-panel').textContent.includes('Lịch sử'),'the settings menu no longer lists history');
+  histNav.click();await flush();
+  const histModal=d.querySelector('[data-view="history"]');
+  assert(histModal&&!histModal.hidden&&histNav.getAttribute('aria-current')==='page','history page opens from the menu');
+  assert(d.querySelector('[data-view="terminals"]').hidden,'the history page replaces the current page');
   const histRows=()=>[...histModal.querySelectorAll('.ao-history-row')];
   assert.equal(histRows().length,3,'three conversation rows rendered');
   // Regression: the list once read created_at/agent_number/terminal_id, which the API never sends (blank time, "Khác" group).
@@ -284,7 +289,7 @@ const {JSDOM}=require('jsdom');
   provSelect.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
   assert(!d.querySelector('[data-select-menu]')&&provSelect.value==='claude','Escape closes the menu without changing the value');
   provSelect.dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
-  d.querySelector('.ao-history-header h2').dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
+  d.querySelector('.ao-history-toolbar').dispatchEvent(new w.MouseEvent('mousedown',{bubbles:true,cancelable:true,button:0}));
   assert(!d.querySelector('[data-select-menu]'),'clicking elsewhere closes the menu');
 
   // View transcript dialog
@@ -325,10 +330,25 @@ const {JSDOM}=require('jsdom');
   resumeBtn.click();await flush();
   assert.equal(posts.at(-1).input,'/api/conversations/conv-1/resume','resume POST sent to API');
   assert(d.querySelector('[data-toast]').textContent.includes('Đã khôi phục phiên'),'toast confirms resume');
-  assert(!histModal.hasAttribute('open'),'history dialog closes on resume');
+  assert(histModal.hidden&&!d.querySelector('[data-view="terminals"]').hidden,'resuming leaves the history page and shows the terminals');
+  // Earlier chats' tasks are hidden by default, with a visible note and one click to bring them back.
+  const scopeNote=d.querySelector('[data-scope-note]');
+  assert(scopeNote.hidden,'no note when nothing from earlier chats is hidden');
+  chatStatus={...chatStatus,hidden:{tasks:5,review:2,workflows:0}};await poll();
+  assert(!scopeNote.hidden&&scopeNote.textContent.includes('Đang ẩn 5 nhiệm vụ')&&scopeNote.textContent.includes('2 đang chờ review'),'the note says how much is hidden, including work awaiting review');
+  assert(!requests.slice(-12).some(r=>r.includes('scope=all')),'by default only the current chat is requested');
+  requests=[];d.querySelector('[data-scope-toggle]').click();await flush();
+  assert(['/api/tasks?scope=all','/api/activity?scope=all','/api/workflows?scope=all'].every(r=>requests.includes(r)),'the toggle requests every list with scope=all');
+  assert(scopeNote.textContent.includes('Đang hiện cả')&&scopeNote.textContent.includes('Chỉ cuộc trò chuyện hiện tại'),'the note switches to the opposite action');
+  requests=[];d.querySelector('[data-scope-toggle]').click();await flush();
+  assert(requests.includes('/api/tasks')&&!requests.some(r=>r.includes('scope=all')),'toggling back returns to the current chat only');
+  chatStatus={...chatStatus,hidden:{tasks:0,review:0,workflows:0}};await poll();
+  assert(scopeNote.hidden,'the note disappears when nothing is hidden');
+
   // New chat: confirmation modal, blocked while work runs, then closes everything and reopens Agent 0.
   const chatBtn=d.querySelector('[data-console-action="newchat"]');
-  assert(chatBtn&&chatBtn.textContent.includes('Cuộc trò chuyện mới'),'new-chat button is in the toolbar');
+  assert(chatBtn&&chatBtn.textContent.includes('Cuộc trò chuyện mới'),'new-chat button exists');
+  assert(chatBtn.closest('.ao-console-bar-actions')&&!chatBtn.closest('.ao-console-settings-panel'),'new-chat button sits on the console bar, not inside the settings menu');
   chatBtn.click();await flush();
   const chatDlg=d.querySelector('.ao-chat-dialog');
   assert(chatDlg&&chatDlg.hasAttribute('open'),'clicking the button opens the confirmation modal, it does not act');

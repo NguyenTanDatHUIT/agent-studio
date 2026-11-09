@@ -63,6 +63,7 @@ MCP tools:
 |---|---|
 | enqueue_task | Queue task có scope và tên test profile. `provider` tạo agent mới; `agent=N` giao việc tiếp cho agent đó; `remember` ghi đè nhớ ngữ cảnh cho lần đó |
 | list_agents | Agent đánh số: loại, nhớ ngữ cảnh, task hiện tại, vòng, bận/rảnh |
+| get_orchestration_rules | Chỉ đọc: quy tắc điều phối agent CMD do chủ máy cấu hình (đã thay biến) |
 | list_tasks | Tối đa 200 task gần đây |
 | get_task | Trạng thái và kết quả, không lặp full prompt |
 | get_events | 100 event/trang, dùng seq làm after cursor |

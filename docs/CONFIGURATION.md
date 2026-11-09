@@ -38,3 +38,7 @@ xử lý một task failed, 130 khi Ctrl+C. Với cancelled, trạng thái trong
 nguồn xác định; CLI worker không dùng exit code để biểu đạt mọi trạng thái nghiệp vụ.
 `worker --once` không có task cũng trả 0. Runner liên tục in từng id/status khi
 xử lý xong; chi tiết ở `show`, `events` và raw log.
+
+## Biến môi trường `AGENT_STUDIO_REPO`
+
+Nếu đặt, ghi đè `repo` của file cấu hình cho tiến trình đó (đường dẫn phải là thư mục có thật, vẫn chịu các kiểm tra tách biệt với `state_dir` và file cấu hình; sai thì báo lỗi, không im lặng quay về repo cũ). Dashboard tự đặt biến này cho tiến trình MCP của Agent 0 để Agent 0 và các công cụ của nó dùng cùng repo với dashboard sau khi bạn đổi repo trên giao diện. File cấu hình không bị sửa.

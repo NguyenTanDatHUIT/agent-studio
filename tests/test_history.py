@@ -127,6 +127,23 @@ class TestConversationStore(unittest.TestCase):
         self.assertEqual(len(matched), 1)
         self.assertEqual(matched[0]['id'], 'conv-codex-1')
 
+        # Filter agent0 vs claude
+        self.store.conversation_add({
+            'id': 'conv-agent0-1',
+            'provider': 'claude',
+            'kind': 'agent0',
+            'cwd': str(self.tmp),
+            'title': 'Agent 0 session',
+            'started': '2026-11-07T20:00:00Z',
+            'last_active': '2026-11-07T20:00:00Z',
+            'status': 'closed'
+        })
+        agent0_only = self.store.conversation_list(provider='agent0')
+        self.assertEqual([c['id'] for c in agent0_only], ['conv-agent0-1'])
+        claude_no_a0 = self.store.conversation_list(provider='claude')
+        self.assertEqual(len(claude_no_a0), 5)
+        self.assertTrue(all(c['kind'] != 'agent0' for c in claude_no_a0))
+
     def test_list_limit_validation(self):
         for bad_limit in [0, 201, -5, '50', None, 1.5]:
             with self.assertRaises(OrchError):
@@ -466,6 +483,49 @@ class TestTerminalResumeAndTranscripts(unittest.TestCase):
         self.assertNotEqual(resumed['gen'], first['gen'])
         listed = [x for x in self.terminals.snapshot() if x['id'] == first['id']]
         self.assertEqual(listed[0]['gen'], resumed['gen'])
+
+    @unittest.skipUnless(os.name == 'nt', 'ConPTY requires Windows')
+    def test_resume_agent0_replaces_running_blank_agent0(self):
+        first = self.terminals.open('agent0')
+        first_conv_id = self.terminals.sessions['agent0'].conversation_id
+        first_sess_id = self.terminals.sessions['agent0'].session_id
+        second = self.terminals.restart_agent0()
+        second_conv_id = self.terminals.sessions['agent0'].conversation_id
+        self.assertNotEqual(second['gen'], first['gen'])
+        self.assertNotEqual(self.terminals.sessions['agent0'].session_id, first_sess_id)
+        self.terminals.last_open = -1e9
+        resumed = self.terminals.resume_conversation(first_conv_id)
+        self.assertFalse(resumed.get('already_open', False))
+        self.assertEqual(resumed['id'], 'agent0')
+        self.assertNotEqual(resumed['gen'], second['gen'])
+        self.assertEqual(self.terminals.sessions['agent0'].session_id, first_sess_id)
+        self.assertTrue(self.terminals.sessions['agent0'].resumed)
+        self.assertEqual(self.store.conversation_get(second_conv_id)['status'], 'closed')
+        # Calling resume_conversation again while that same session_id is already open focuses it
+        again = self.terminals.resume_conversation(first_conv_id)
+        self.assertTrue(again.get('already_open'))
+        self.assertEqual(again['gen'], resumed['gen'])
+
+    def test_resolve_claude_session_when_resumed_inside_terminal(self):
+        from agent_orchestrator.terminals import resolve_claude_session
+        import re
+        claude_home = self.tmp / '.claude'
+        slug = re.sub(r'[^a-zA-Z0-9]', '-', str(self.repo.resolve()))
+        proj_dir = claude_home / 'projects' / slug
+        proj_dir.mkdir(parents=True, exist_ok=True)
+        real_sid = '58faf740-d02b-4408-9fc4-35dda4946e90'
+        unused_sid = '6ef8b08d-27e4-4524-a76c-e1faa7653f35'
+        real_file = proj_dir / f'{real_sid}.jsonl'
+        real_file.write_text('{"type":"user"}\n', encoding='utf-8')
+        t0 = time.time()
+        os.utime(real_file, (t0 + 10, t0 + 10))
+        started_iso = time.strftime('%Y-%m-%dT%H:%M:%S+00:00', time.gmtime(t0))
+        # Resolves via timestamp when unused_sid.jsonl was never created
+        self.assertEqual(resolve_claude_session(unused_sid, self.repo, started_iso=started_iso, claude_home=claude_home), real_sid)
+        # Resolves via transcript reference
+        trans = self.tmp / 'trans.log'
+        trans.write_text(f'Resume session {real_sid}.jsonl\n', encoding='utf-8')
+        self.assertEqual(resolve_claude_session(unused_sid, self.repo, transcript_path=trans, claude_home=claude_home), real_sid)
 
     def test_session_title_ignores_focus_reports_and_trust_dialog_enter(self):
         from agent_orchestrator.terminals import Session
@@ -846,6 +906,91 @@ class TestWebHistoryApi(unittest.TestCase):
         self.assertEqual(resumed['agent'], 2)
         self.assertTrue(t.sessions[fresh['id']].alive)
 
+    def test_task_list_defaults_to_the_current_chat_and_scope_all_shows_the_rest(self):
+        db = self.engine.db
+        db.add({'id': 'a' * 24, 'provider': 'codex', 'prompt': 'old', 'agent': None})
+        db.finish('a' * 24, 'awaiting_review', {})
+        time.sleep(0.01)
+        self.assertEqual(self.request('/api/chat/new', method='POST', body={'confirm': True})[0], 200)
+        time.sleep(0.01)
+        db.add({'id': 'b' * 24, 'provider': 'codex', 'prompt': 'new', 'agent': None})
+        db.finish('b' * 24, 'awaiting_review', {})
+        self.assertEqual([t['id'] for t in self.request('/api/tasks')[1]], ['b' * 24])
+        self.assertEqual({t['id'] for t in self.request('/api/tasks?scope=all')[1]}, {'a' * 24, 'b' * 24})
+        self.assertTrue(all(e['task_id'] != 'a' * 24 for e in self.request('/api/activity')[1]))
+        self.assertTrue(any(e['task_id'] == 'a' * 24 for e in self.request('/api/activity?scope=all')[1]))
+        status = self.request('/api/chat')[1]
+        self.assertEqual((status['hidden']['tasks'], status['hidden']['review']), (1, 1))
+        self.assertTrue(status['since'])
+        self.assertEqual(self.request('/api/workflows')[1], [])
+
+    def test_switching_repo_reopens_agent0_on_the_new_repo(self):
+        t = self.server.terminals
+        t.open('agent0')
+        first = t.sessions['agent0']
+        new_repo = self.tmp / 'other-repo'
+        new_repo.mkdir()
+        self.assertEqual(self.request('/api/repo', method='POST', token=False, body={'path': str(new_repo)})[0], 401)
+        status, data = self.request('/api/repo', method='POST', body={'path': str(new_repo)})
+        self.assertEqual(status, 200, data)
+        self.assertTrue(data['agent0_restarted'])
+        second = t.sessions['agent0']
+        self.assertIsNot(second, first)
+        self.assertEqual(Path(second.cwd).resolve(), new_repo.resolve())          # works in the new repo
+        mcp = json.loads((self.state / 'agent0-mcp.json').read_text(encoding='utf-8'))
+        self.assertEqual(mcp['mcpServers']['agent-orchestrator']['env']['AGENT_STUDIO_REPO'], str(new_repo.resolve()))
+        rows = [c for c in self.request('/api/conversations')[1] if c['kind'] == 'agent0']
+        self.assertEqual(sorted((c['live'], c['status']) for c in rows), [(False, 'closed'), (True, 'active')])  # old one kept in history
+        self.assertIn('"action": "restart_agent0"', (self.state / 'terminal-audit.jsonl').read_text(encoding='utf-8'))
+
+    def test_switching_repo_without_a_running_agent0_does_not_start_one(self):
+        other = self.tmp / 'quiet-repo'
+        other.mkdir()
+        status, data = self.request('/api/repo', method='POST', body={'path': str(other)})
+        self.assertEqual((status, data['agent0_restarted']), (200, False))
+        self.assertNotIn('agent0', self.server.terminals.sessions)
+
+    def test_agent0_can_close_only_the_terminals_it_opened(self):
+        t = self.server.terminals
+        key = self.server.bridge_key
+        bridge = lambda path, body=None, k=key: self.request(path, method='POST', token=False, bridge_key=k, body={} if body is None else body)
+        mine = bridge('/api/bridge/terminals/open', {'provider': 'claude'})[1]               # opened by Agent 0 through the bridge
+        theirs = t.open('agent', 'claude')                                                 # opened by the owner from the dashboard
+        t.open('agent0')
+        close = lambda ref, **kw: bridge(f"/api/bridge/terminals/{ref}/close", **kw)
+        self.assertEqual(close(mine['id'], k=None)[0], 401)                                 # needs the bridge key
+        self.assertIn(mine['id'], t.sessions)
+        status, data = close(theirs['id'])
+        self.assertEqual(status, 400)
+        self.assertIn('chính nó mở', data['error'])                                         # the owner's window is not Agent 0's to close
+        self.assertTrue(t.sessions[theirs['id']].alive)
+        self.assertEqual(close('agent0')[0], 400)
+        self.assertEqual(close('claude-99')[0], 400)
+        self.assertEqual(close(mine['id'], body={'x': 1})[0], 400)
+        self.assertTrue(t.sessions[mine['id']].alive)
+        status, data = close(mine['id'])
+        self.assertEqual((status, data['closed']), (200, True))
+        self.assertNotIn(mine['id'], t.sessions)
+        row = next(c for c in self.request('/api/conversations')[1] if c['terminal_key'] == mine['id'] and not c['live'])
+        self.assertEqual(row['status'], 'closed')                                           # kept in the history
+        audit = (self.state / 'terminal-audit.jsonl').read_text(encoding='utf-8')
+        self.assertIn('"action": "close"', audit)
+        self.assertIn('"by": "agent0"', audit)
+        self.assertEqual(close(mine['id'])[0], 400)                                         # already gone
+
+    def test_close_terminal_mcp_tool_uses_the_bridge(self):
+        from agent_orchestrator.mcp import DEFINITIONS, Server
+        self.assertIn('close_terminal', [name for name, _, _ in DEFINITIONS])
+        (self.state / 'terminal-bridge.json').write_text(json.dumps({'port': self.server.server_port, 'key': self.server.bridge_key}), encoding='utf-8')
+        s = Server(self.engine)
+        opened = s.call('open_terminal', {'provider': 'claude'})
+        self.assertEqual(s.call('close_terminal', {'terminal_id': opened['id']})['terminal'], opened['id'])
+        with self.assertRaises(OrchError):
+            s.call('close_terminal', {'terminal_id': opened['id']})
+        time.sleep(2.1)                                                                     # open_terminal is rate limited
+        again = s.call('open_terminal', {'provider': 'claude'})
+        self.assertNotEqual(again['gen'], opened['gen'])                                    # a fresh window to replace the failed one
+
     def test_bridge_cannot_delete(self):
         for path in ('/api/bridge/conversations/x/delete', '/api/bridge/conversations/delete-all'):
             status, _ = self.request(path, method='POST', token=False, bridge_key=self.server.bridge_key, body={})
@@ -972,6 +1117,13 @@ class TestTitleFromKeys(unittest.TestCase):
         self.assertEqual(self.keys(self.CR + self.CR + 'dòng một' + self.CR + 'dòng hai' + self.CR), 'dòng một')
         self.assertEqual(len(self.keys('x' * 500)), 80)
 
+    def test_slash_commands_are_ignored_for_title(self):
+        self.assertIsNone(self.keys('/mo' + self.CR))
+        self.assertIsNone(self.keys('/model claude-sonnet-5-5' + self.CR))
+        self.assertIsNone(self.keys('/res' + self.CR))
+        self.assertEqual(self.keys('/model' + self.CR + '/resume' + self.CR + 'giao việc thật' + self.CR), 'giao việc thật')
+        self.assertEqual(self.keys('/Users/dev/plan.md xem file' + self.CR), '/Users/dev/plan.md xem file')
+
     def test_old_titles_with_focus_leftovers_are_cleaned_on_read(self):
         tmp = Path(tempfile.mkdtemp(prefix='title-clean-'))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
@@ -1019,3 +1171,55 @@ class TestChatReset(unittest.TestCase):
         self.store.wf_cancel('w' * 12)
         self.assertEqual(self.store.chat_busy(), {'tasks': 0, 'workflows': 0})
         self.assertEqual(self.store.reset_chat()['agents_removed'], 1)
+
+
+class TestChatScope(unittest.TestCase):
+    """A new chat starts clean: earlier tasks, workflows and activity stay in the database but out of the default lists."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix='chat-scope-'))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.store = Store(self.tmp)
+
+    def add_task(self, task_id, status='awaiting_review'):
+        self.store.add({'id': task_id, 'provider': 'codex', 'prompt': 'x', 'agent': None})
+        if status != 'queued':
+            self.store.finish(task_id, status, {'ok': True})
+
+    def test_nothing_is_hidden_before_the_first_reset(self):
+        self.add_task('a' * 24)
+        self.assertEqual([t['id'] for t in self.store.list()], ['a' * 24])
+        self.assertIsNone(self.store.chat_since())
+        self.assertEqual(self.store.hidden_counts(), {'tasks': 0, 'review': 0, 'workflows': 0})
+
+    def test_reset_hides_earlier_work_but_keeps_it_reachable(self):
+        self.add_task('a' * 24)                                   # awaiting review: must stay discoverable
+        self.add_task('b' * 24, 'approved')
+        self.store.wf_create('w' * 12, 'old plan', 0, [('s1', {'prompt': 'p'})])
+        self.store.wf_cancel('w' * 12)
+        time.sleep(0.01)
+        self.store.reset_chat()
+        time.sleep(0.01)
+        self.add_task('c' * 24)
+        self.assertEqual([t['id'] for t in self.store.list()], ['c' * 24])
+        self.assertEqual({t['id'] for t in self.store.list(all_chats=True)}, {'a' * 24, 'b' * 24, 'c' * 24})
+        self.assertEqual(self.store.wf_list(), [])
+        self.assertEqual(len(self.store.wf_list(all_chats=True)), 1)
+        self.assertEqual(self.store.hidden_counts(), {'tasks': 2, 'review': 1, 'workflows': 1})
+        self.assertTrue(all(e['task_id'] == 'c' * 24 for e in self.store.activity()))
+        self.assertGreater(len(self.store.activity(all_chats=True)), len(self.store.activity()))
+        self.assertEqual(self.store.get('a' * 24)['id'], 'a' * 24)  # opening an old task by id still works
+
+    def test_a_refused_reset_does_not_move_the_start_of_the_chat(self):
+        self.add_task('a' * 24, 'queued')                          # still running: reset refuses
+        with self.assertRaises(OrchError):
+            self.store.reset_chat()
+        self.assertIsNone(self.store.chat_since())
+        self.assertEqual(len(self.store.list()), 1)
+
+    def test_engine_still_sees_every_workflow(self):
+        # the engine releases steps of any unfinished workflow; only the dashboard lists are scoped
+        import inspect
+        from agent_orchestrator import engine
+        self.assertIn('wf_list(100, all_chats=True)', inspect.getsource(engine))
+

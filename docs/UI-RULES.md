@@ -44,3 +44,7 @@ Test jsdom không dàn trang nên không bắt được lỗi tràn ngang, nút 
 
 Tiêu đề, đường dẫn, nội dung transcript hiển thị qua `esc()` (không `innerHTML` trực tiếp). Tiêu đề phiên lấy từ phím người dùng gõ phải
 được phát lại như trên màn hình (bỏ chuỗi điều khiển, xử lý Backspace của bộ gõ tiếng Việt): xem `title_from_keys()` trong `transcripts.py`.
+
+## 5. Hộp thoại chưa mở phải ẩn hẳn
+
+Một lớp riêng đặt `display` cho `<dialog>` (ví dụ `.ao-transcript-dialog{display:flex}`) sẽ đè quy tắc mặc định `dialog:not([open]){display:none}`, và hộp thoại đóng hiện ra như một khối ở cuối trang. Quy tắc `#ao-studio dialog:not([open]){display:none}` trong `style.css` luôn thắng; đừng xóa nó. Khi viết hộp thoại mới chỉ cần đặt `display` cho trạng thái mở. `tests/test_ui_rules.py` và `tools/ui_shots.cjs` kiểm tra điều này.

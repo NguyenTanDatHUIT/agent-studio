@@ -443,6 +443,40 @@ class Handler(BaseHTTPRequestHandler):
             for key, value in body.items():
                 e.db.set_setting(key, value)
             return self.reply(200, {'default_remember': e.default_remember(), 'notify_agent0': bool(e.db.setting('notify_agent0', True))})
+        if path.startswith('/api/orchestration-rules'):
+            from . import rules as orch_rules
+            repos = list(e.cfg.repos.values())
+
+            def rules_view():
+                data, markdown, unknown = orch_rules.current(e.cfg, e.db)
+                agent0 = self.server.terminals.sessions.get('agent0')
+                return {'params': data['params'], 'texts': data['texts'], 'default': orch_rules.defaults(), 'preview': markdown,
+                        'unknown_variables': unknown, 'digest': orch_rules.digest(markdown), 'variables': list(orch_rules.VARIABLES),
+                        'applied_digest': e.db.setting(orch_rules.APPLIED_KEY, None),
+                        'agent0_running': bool(agent0 is not None and getattr(agent0, 'alive', False)),
+                        'text_limit': orch_rules.TEXT_LIMIT, 'history': [{'time': h.get('time')} for h in orch_rules.history(e.db)]}
+            sub = path[len('/api/orchestration-rules'):]
+            if sub == '' and not mutation:
+                return self.reply(200, rules_view())
+            if sub == '' and mutation:
+                orch_rules.save(e.db, body, repos)
+                return self.reply(200, rules_view())
+            if sub == '/preview' and mutation:
+                candidate = orch_rules.validate(body, repos)
+                markdown, unknown = orch_rules.render(e.cfg, candidate)
+                return self.reply(200, {'preview': markdown, 'unknown_variables': unknown})
+            if sub == '/reset' and mutation and not body:
+                orch_rules.reset(e.db)
+                return self.reply(200, rules_view())
+            if sub == '/restart-agent0' and mutation and not body:
+                info = self.server.terminals.restart_agent0()
+                return self.reply(200, {'restarted': info is not None})
+            if sub == '/history' and not mutation:
+                return self.reply(200, orch_rules.history(e.db))
+            if sub == '/restore' and mutation and set(body) == {'index'}:
+                orch_rules.restore(e.db, body['index'], repos)
+                return self.reply(200, rules_view())
+            return self.reply(404, {'error': 'Route or arguments not supported'})
         match = re.fullmatch(r'/api/agents/(\d{1,9})/settings', path)
         if match and mutation:
             # Whitelisted keys only; add new per-agent options here and in the dashboard's settingDefs list.

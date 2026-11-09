@@ -195,7 +195,7 @@ Thay đổi có hiệu lực ngay, kể cả màu nền của các terminal, và
 ## Lịch sử chat & Mở lại phiên (Conversations & Resume)
 
 Dashboard cung cấp nút **"Lịch sử"** trên thanh điều khiển (cạnh "Làm mới log"):
-- **Hộp thoại Lịch sử**:
+- **Trang Lịch sử** (mục "Lịch sử" trong menu bên trái):
   - Nhóm các phiên làm việc theo ngày (`Hôm nay`, `Hôm qua`, hoặc ngày cụ thể `DD/MM/YYYY`).
   - Hỗ trợ ô tìm kiếm theo tiêu đề/ID và bộ lọc nhà cung cấp (Agent 0, Claude, Codex, Antigravity).
   - Hiển thị thời gian bắt đầu, badge số hiệu agent, tiêu đề tóm tắt, ngữ cảnh làm việc (repo, task worktree, thư mục cwd), và trạng thái hiện tại.
@@ -206,7 +206,7 @@ Dashboard cung cấp nút **"Lịch sử"** trên thanh điều khiển (cạnh 
 
 ## Cuộc trò chuyện mới và hộp thoại Thêm CMD
 
-- Nút **"Cuộc trò chuyện mới"** (tab Cửa sổ CMD) mở hộp thoại xác nhận; khi xác nhận: đóng mọi cửa sổ CMD (giữ trong Lịch sử), đánh số agent lại từ 1 và mở lại Agent 0 trống. Bị khóa (có nêu lý do) khi còn nhiệm vụ hoặc workflow đang chạy. Mỗi lần mở công cụ cũng tự bắt đầu từ số 1. Chi tiết: `docs/HUONG-DAN-LICH-SU-CHAT.md` (mục "Cuộc trò chuyện mới") và `docs/KIEN-TRUC-LICH-SU-CHAT.md` (mục 6).
+- Nút **"Cuộc trò chuyện mới"** (ngay trên thanh công cụ tab Cửa sổ CMD, cạnh "+ CMD") mở hộp thoại xác nhận; khi xác nhận: đóng mọi cửa sổ CMD (giữ trong Lịch sử), đánh số agent lại từ 1 và mở lại Agent 0 trống. Bị khóa (có nêu lý do) khi còn nhiệm vụ hoặc workflow đang chạy. Mỗi lần mở công cụ cũng tự bắt đầu từ số 1. Chi tiết: `docs/HUONG-DAN-LICH-SU-CHAT.md` (mục "Cuộc trò chuyện mới") và `docs/KIEN-TRUC-LICH-SU-CHAT.md` (mục 6).
 - Hộp thoại **"Thêm terminal agent"** chỉ còn chọn Agent (và Repo khi có nhiều repo). Ô "Thư mục làm việc" (chọn worktree của task) đã bỏ: terminal luôn mở ở thư mục repo đã chọn. Backend vẫn nhận `task_id` cho nút "Mở terminal" ở chi tiết task.
 
 
@@ -221,3 +221,40 @@ Khi chạy bằng `Start-AgentStudio.cmd` (hoặc lối tắt trên desktop), c�
 | `C:/Program Files/Mozilla Firefox/firefox.exe` (ví dụ) | Dùng đúng file đó (phải là đường dẫn tuyệt đối tới một file `.exe` có thật) |
 
 Giá trị không hợp lệ (đường dẫn tương đối, không phải `.exe`, không tồn tại) không chạy gì cả mà quay về trình duyệt mặc định. Địa chỉ có token được truyền như một đối số duy nhất, không qua shell. Mã nguồn: `agent_orchestrator/browser.py`.
+
+Tab Tổng quan, Luồng tự động, Nhiệm vụ và Báo cáo chỉ hiện cuộc trò chuyện hiện tại; ghi chú ở tab Nhiệm vụ cho biết đang ẩn bao nhiêu việc cũ và có nút "Hiện tất cả" (chi tiết: `docs/KIEN-TRUC-LICH-SU-CHAT.md`, mục 6.1).
+
+## Đổi repo và Agent 0
+
+Chọn thư mục dự án khác trên dashboard (biểu tượng thư mục cạnh tên repo) chỉ đổi repo trong tiến trình dashboard; file cấu hình của chủ máy **không bị ghi đè**. Agent 0 là một phiên Claude Code riêng với thư mục làm việc và tiến trình MCP cố định từ lúc nó khởi động, nên khi đổi repo dashboard **mở lại Agent 0** ở repo mới (phiên cũ được giữ trong Lịch sử, trạng thái "Đã đóng"). Thư mục làm việc và các công cụ `enqueue_task`, `open_terminal`... của Agent 0 từ đó dùng đúng repo mới; thông báo sau khi chọn cho biết Agent 0 đã được mở lại.
+
+Agent 0 chỉ điều phối: các công cụ `Agent`, `Task`, `Workflow` của Claude Code và việc chạy `claude`/`codex`/`agy` bằng Bash bị chặn (`--disallowed-tools`), nên nó không thể tự tạo agent trong khung terminal của mình; việc giao cho agent luôn đi qua `enqueue_task`/`enqueue_plan`/`open_terminal`, và dashboard mở cửa sổ CMD mới cho agent đó. Giới hạn: gọi CLI bằng đường dẫn tuyệt đối hoặc qua trình bao khác chưa bị chặn bằng cờ, chỉ bị cấm bằng hướng dẫn trong `examples/AGENT0-PROMPT.md`.
+
+Lưu ý khi dùng repo mới: danh sách `tests` trong file cấu hình là của chủ máy và áp dụng cho mọi repo. Một profile chỉ có ý nghĩa với repo cũ (ví dụ `python -m unittest tests.test_readiness`) sẽ làm task ở repo khác chạy test sai; hãy khai báo profile test phù hợp cho repo mới.
+
+## Thông báo "đã xong" của terminal tương tác (agy/claude/codex)
+
+Khi một terminal tương tác do dashboard mở yên lặng, dashboard gõ vào Agent 0 dòng `[AO] <terminal> đã xong. Dùng read_terminal(...)`. Dòng này chỉ có nghĩa là **terminal đã yên lặng**, không bảo đảm việc đã xong. Hai lỗi từng làm nó bắn sai và lặp (xem `NhatKyCongViec/2026-11-08-thong-bao-xong-va-vong-lap-agent0.md`):
+
+- **Agent đang chạy lệnh dài mà không in gì.** agy có thể im hoàn toàn nhiều phút khi chạy `dotnet test` hay docker. Dòng cuối của agy lúc đó là `○ Running (...)`. `terminal_looks_busy()` coi terminal là bận khi dấu `Running (` hoặc `Running…` xuất hiện sau dấu hiệu kết thúc cuối cùng (`Ran (...)`, `Ran N commands`, `Worked for Ns`, `· done HH:MM`). Một dấu hiệu bận quá cũ không giữ im lặng mãi: sau `IDLE_BUSY_CAP` (20 phút im lặng) terminal vẫn được báo. Các dòng trạng thái có hoạt ảnh (`esc to cancel`, `esc to interrupt`, spinner) vẫn do `is_terminal_spinning()` xử lý.
+- **Báo cáo focus của trình duyệt bị coi là thao tác.** Terminal TUI bật báo cáo focus, nên mỗi lần bấm sang cửa sổ khác xterm gửi `ESC[I`/`ESC[O` (cùng báo cáo chuột và vị trí con trỏ). Chúng từng đặt lại cờ "đã báo" và bắn thêm một thông báo ở lần im lặng kế tiếp. `Session.write()` giờ bỏ qua đầu vào chỉ gồm mã điều khiển; gõ chữ hay Enter vẫn tính.
+
+### Agent 0 tự đóng terminal của mình
+
+`close_terminal(terminal_id)` (MCP) và `POST /api/bridge/terminals/<id>/close` cho phép Agent 0 đóng **chỉ những terminal do chính nó mở** bằng `open_terminal`. Không đóng được cửa sổ người dùng mở, Agent 0 hay cửa sổ theo dõi task; cần khóa bridge; cuộc hội thoại vẫn nằm trong Lịch sử; có ghi `terminal-audit.jsonl` (`close`, `by: agent0`). Dùng để thay một agy đã sửa hai lần vẫn chưa đạt bằng một agy mới. Quy trình đầy đủ nằm trong `examples/AGENT0-PROMPT.md`, mục "Giao việc cho agent tương tác".
+
+## Quy tắc điều phối agent (Cài đặt)
+
+Menu cài đặt của khung Cửa sổ CMD có nút **Quy tắc điều phối agent**, mở hộp thoại cấu hình cách Agent 0 giao việc cho các cửa sổ CMD:
+tham số có kiểm giá trị (số lần sửa, số cửa sổ cho một việc, số agent chạy cùng lúc, phút coi là treo, model mong đợi...), ba ô văn bản Markdown
+(Quy tắc điều phối, Ràng buộc chung, Checklist nghiệm thu), xem trước, lịch sử 20 bản, khôi phục mặc định, xuất/nhập `.md`.
+
+- Dữ liệu lưu trong bảng `settings` của công cụ (không nằm trong repo đích, worker không sửa được). Mã: `agent_orchestrator/rules.py`.
+- Mỗi lần mở/khởi động lại/mở lại Agent 0, `agent0_argv` ghép `examples/AGENT0-PROMPT.md` với quy tắc hiện hành thành
+  `state/agent0-prompt.generated.md` và truyền qua `--append-system-prompt-file`. Quy tắc không đụng tới `AGENT0_DENIED` và danh sách công cụ cho phép.
+- Agent 0 đọc lại bản hiện hành bằng công cụ MCP chỉ-đọc `get_orchestration_rules`; không có công cụ ghi quy tắc.
+- `open_terminal` của Agent 0 bị từ chối khi đã đủ `max_concurrent_agents` agent tương tác đang sống (tắt được bằng công tắc "Chặn mở agent...").
+  Cửa sổ do chủ máy tự mở bằng nút CMD không bị chặn.
+- API (cần token chủ máy): `GET/POST /api/orchestration-rules` (POST ghi, kiểm chặt khoá/kiểu/miền giá trị), `POST .../preview`, `POST .../reset`,
+  `GET .../history`, `POST .../restore {"index": n}`, `POST .../restart-agent0`. Dùng POST thay PUT vì máy chủ chỉ nhận GET/POST.
+

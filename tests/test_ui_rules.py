@@ -65,6 +65,19 @@ class FormControlRules(unittest.TestCase):
         self.assertIn('old.gen!==s.gen', js)
         self.assertIn('gen:info.gen', js)
 
+    def test_a_closed_dialog_is_always_hidden(self):
+        # Regression: .ao-transcript-dialog{display:flex} beat the default dialog:not([open]){display:none}, so the closed
+        # transcript viewer showed up as a 640px block at the bottom of the page.
+        guard = [body for sel, body in rules() if sel == '#ao-studio dialog:not([open])']
+        self.assertEqual(len(guard), 1, 'missing the rule that hides closed dialogs')
+        self.assertIn('display:none', guard[0].replace(' ', ''))
+        # a class rule that sets display on a dialog is only safe because the guard above is more specific
+        class_rule = re.compile(r'^#ao-studio \.[\w-]*dialog[\w-]*$')
+        for sel, body in rules():
+            if class_rule.match(sel) and re.search(r'(?<![-\w])display\s*:', body):
+                specificity_ok = '#ao-studio dialog:not([open])'  # (1,1,1) beats (1,1,0)
+                self.assertIn(specificity_ok, [s for s, _ in rules()])
+
     def test_no_inline_styles_on_form_controls_in_templates(self):
         pattern = re.compile(r'<(?:input|select|textarea)\b[^>]*\bstyle\s*=', re.I)
         for name in ('index.html', 'app.js'):

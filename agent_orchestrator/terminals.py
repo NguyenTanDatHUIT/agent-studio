@@ -23,9 +23,10 @@ from datetime import datetime, timezone, timedelta
 import uuid
 from pathlib import Path
 
+from . import rules
 from .config import OrchError, inside
 from .providers import SESSION
-from .transcripts import append_transcript_entry, title_from_keys
+from .transcripts import _is_slash_command, append_transcript_entry, title_from_keys
 from .store import chat_busy_message, now
 
 BUFFER_LIMIT = 1_000_000
@@ -35,7 +36,7 @@ SEND_INTERVAL = 1.0    # minimum seconds between two sends to the same terminal
 OPEN_INTERVAL = 2.0    # minimum seconds between two terminals opened by Agent 0
 TASK_ID = re.compile(r'^[0-9a-f]{24}$')
 STAGE = re.compile(r'^[\w.-]{1,64}$')
-AGENT0_TOOLS = ['enqueue_task', 'enqueue_plan', 'list_workflows', 'cancel_workflow', 'list_repos', 'list_tasks', 'get_task', 'get_events', 'review_bundle', 'list_terminals', 'read_terminal', 'list_agents']
+AGENT0_TOOLS = ['enqueue_task', 'enqueue_plan', 'list_workflows', 'cancel_workflow', 'list_repos', 'list_tasks', 'get_task', 'get_events', 'review_bundle', 'list_terminals', 'read_terminal', 'list_agents', 'get_orchestration_rules']
 # Agent 0 only coordinates: it must hand work to the dashboard (enqueue_task / open_terminal), never spawn agents inside its own
 # terminal. Claude Code's built-in sub-agent tools and launching an agent CLI through Bash are therefore denied.
 AGENT0_DENIED = ['Agent', 'Task', 'Workflow'] + [f'Bash({cli}:*)' for cli in ('claude', 'claude.exe', 'codex', 'codex.exe', 'agy', 'agy.exe')]
@@ -313,6 +314,32 @@ class Session:
             start = after - self.base
             return after, bytes(self.buffer[start:]), self.base + len(self.buffer), self.exit_code
 
+    def _submits_work(self, data):
+        """True when this input is not just a slash command (/clear, /model, ...).
+
+        Slash commands are answered by the CLI itself, so their output must not arm the "finished" notice. Other typed text
+        and a bare Enter still arm it. Non-text input keeps the old behaviour.
+        """
+        if not isinstance(data, str):
+            return True
+        buf = self.__dict__.setdefault('_line_buf', [])
+        work = False
+        for ch in ANSI.sub('', data):
+            if ch in (chr(0x7f), chr(8)):
+                if buf:
+                    buf.pop()
+            elif ch in (chr(13), chr(10)):
+                line = ''.join(buf).strip()
+                buf.clear()
+                if not _is_slash_command(line):
+                    work = True
+            elif ord(ch) >= 32:
+                buf.append(ch)
+                if buf[0] != '/':
+                    work = True  # ordinary text being typed; a line starting with '/' is a command, not a task
+        del buf[:-500]
+        return work
+
     def write(self, data, system=False):
         if not self.alive or self.closed:
             raise OrchError('Terminal has ended')
@@ -321,9 +348,10 @@ class Session:
         real_input = not isinstance(data, str) or ANSI.sub('', data) != ''
         if not system and real_input:
             self.last_input = time.time()  # a person is typing: the dashboard must not interleave its own notices
-            self.idle = False
-            self.idle_notified = False
-            self.has_active_work = True
+            if self._submits_work(data):
+                self.idle = False
+                self.idle_notified = False
+                self.has_active_work = True
             if not self.first_input_done and isinstance(data, str):
                 self.input_accumulator = (self.input_accumulator + data)[-2000:]
                 typed = title_from_keys(self.input_accumulator)
@@ -1145,6 +1173,11 @@ class Terminals:
         """
         if provider not in TERMINAL_AGENTS:
             raise OrchError('provider must be one of: ' + ', '.join(TERMINAL_AGENTS))
+        params = rules.load(self.db)['params']
+        with self.lock:
+            live = sum(1 for x in self.sessions.values() if x.kind == 'agent' and x.alive and not x.closed)
+        if params['concurrency_enforced'] and live >= params['max_concurrent_agents']:
+            raise OrchError(f'Đã đạt giới hạn {params["max_concurrent_agents"]} agent đang chạy; đóng bớt một cửa sổ đã xong rồi thử lại.')
         with self.lock:
             wait = OPEN_INTERVAL - (time.monotonic() - self.last_open)
             if wait > 0:
@@ -1202,6 +1235,11 @@ class Terminals:
                       '--allowed-tools', *('mcp__agent-orchestrator__' + t for t in AGENT0_TOOLS),
                       '--disallowed-tools', *AGENT0_DENIED]
         prompt = Path(package_root) / 'examples' / 'AGENT0-PROMPT.md'
+        try:
+            # Prompt lõi + quy tắc điều phối của chủ máy, ghép lại mỗi lần mở / khởi động lại / resume.
+            prompt = rules.write_generated(self.cfg, self.db, prompt)
+        except (OSError, OrchError, sqlite3.Error):
+            pass
         if prompt.is_file():
             argv += ['--append-system-prompt-file', str(prompt)]
         return argv
