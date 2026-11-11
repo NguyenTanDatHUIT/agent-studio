@@ -8,8 +8,12 @@ const assets = path.join(__dirname, '..', 'agent_orchestrator', 'web_assets');
 
 const params = () => ({default_provider: 'agy', provider_models: {agy: {model: 'Gemini 4 Argon', effort: 'medium'}, claude: {model: '', effort: ''}, codex: {model: '', effort: ''}},
   max_fix_rounds: 2, max_agents_per_task: 2, max_concurrent_agents: 3, concurrency_enforced: true, single_builder: true, close_on_success: true,
-  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000});
+  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true});
 const texts = () => ({rules: 'Quy tắc mặc định {MAX_FIX_ROUNDS}', constraints: 'Ràng buộc mặc định', checklist: 'Checklist mặc định'});
+const sampleRoles = () => ([
+  {slug: 'index', category: 'index', label: 'Bảng điều hướng (INDEX.md)', summary: 'Hướng dẫn nhanh', relpath: 'INDEX.md', path: 'C:/state/prompts/roles/INDEX.md', content: '# Bảng điều hướng'},
+  {slug: 'minimal-change', category: 'coding', label: 'Sửa tối giản (Minimal Change)', summary: 'Diff nhỏ nhất', relpath: 'coding/minimal-change.md', path: 'C:/state/prompts/roles/coding/minimal-change.md', content: '# Vai trò: Sửa tối giản'}
+]);
 
 (async () => {
   const dom = new JSDOM(fs.readFileSync(path.join(assets, 'index.html'), 'utf8'), {url: 'http://127.0.0.1:8765/#token=t', runScripts: 'outside-only', pretendToBeVisual: true});
@@ -25,7 +29,8 @@ const texts = () => ({rules: 'Quy tắc mặc định {MAX_FIX_ROUNDS}', constra
 
   let state = {params: params(), texts: texts(), history: [{time: '2026-11-09T10:00:00+00:00'}], applied: 'old', digest: 'new'};
   const view = () => ({params: state.params, texts: state.texts, default: {params: params(), texts: texts()}, preview: 'XEM TRƯỚC ' + state.params.max_fix_rounds, unknown_variables: [],
-    digest: state.digest, applied_digest: state.applied, agent0_running: true, text_limit: 15000, variables: ['REPO', 'MAX_FIX_ROUNDS'], history: state.history});
+    digest: state.digest, applied_digest: state.applied, agent0_running: true, text_limit: 15000, variables: ['REPO', 'ROLES_DIR', 'MAX_FIX_ROUNDS'],
+    roles_dir: 'C:/state/prompts/roles', roles: sampleRoles(), history: state.history});
   w.fetch = async (url, opts = {}) => {
     const u = String(url).replace(/^.*\/api/, '');
     const body = opts.body ? JSON.parse(opts.body) : null;
@@ -55,6 +60,12 @@ const texts = () => ({rules: 'Quy tắc mặc định {MAX_FIX_ROUNDS}', constra
   assert.match(dlg().textContent, /chưa nhận bản mới/, 'cảnh báo Agent 0 đang chạy chưa nhận bản mới');
   assert.match(dlg().textContent, /Mặc định: 2/, 'hiện giá trị mặc định');
   assert.equal(dlg().querySelector('[data-rt-count="constraints"]').textContent, '18/15000');
+  assert.equal(dlg().querySelector('[data-rp="roles_enabled"]').checked, true);
+  assert.match(dlg().querySelector('[data-role-inspect-body]').textContent, /Bảng điều hướng/);
+  const roleSel = dlg().querySelector('[data-role-inspect]');
+  roleSel.value = '1';
+  roleSel.dispatchEvent(new w.Event('change', {bubbles: true}));
+  assert.match(dlg().querySelector('[data-role-inspect-body]').textContent, /Sửa tối giản/);
 
   // Giá trị sai: không gửi lên, ô được đánh dấu lỗi.
   const before = calls.length;

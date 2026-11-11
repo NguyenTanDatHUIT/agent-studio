@@ -9,6 +9,7 @@ from pathlib import Path
 from .config import Config, OrchError, template
 from .engine import Engine
 from .mcp import serve
+from .roles import ROLE_SLUGS
 
 
 def parser():
@@ -29,6 +30,7 @@ def parser():
     add.add_argument('--agent', type=int, help='Give more work to this numbered agent (continues its task when it remembers context)')
     add.add_argument('--remember', choices=['yes', 'no'], help='Override the agent remember-context setting for this task only')
     add.add_argument('--repo', help='Name of an owner-configured repo (default: the main repo); new agents only')
+    add.add_argument('--role', choices=list(ROLE_SLUGS), help='Optional specialist role profile injected into worker prompt')
     add.add_argument('--prompt-file', required=True)
     add.add_argument('--allow-path', action='append', required=True)
     add.add_argument('--test', action='append', required=True)
@@ -111,7 +113,8 @@ def main(argv=None):
                     output['provider_checks'] = {p: probe(cfg, p, args.check_auth) for p in ('claude', 'codex')}
             elif args.action == 'enqueue':
                 output = engine.enqueue(args.provider, Path(args.prompt_file).read_text(encoding='utf-8-sig'), args.allow_path, args.test,
-                                       agent=args.agent, remember=None if args.remember is None else args.remember == 'yes', repo=args.repo)
+                                       agent=args.agent, remember=None if args.remember is None else args.remember == 'yes', repo=args.repo,
+                                       role=args.role)
             elif args.action == 'list':
                 output = engine.db.list()
             elif args.action == 'worker':

@@ -41,10 +41,11 @@ DEFAULT_PARAMS = {
     'prompts_dir': '',
     'subagent_policy': 'allowed',
     'ram_free_warn_mb': 2000,
+    'roles_enabled': True,
 }
 INT_RANGES = {'max_fix_rounds': (0, 10), 'max_agents_per_task': (1, 10), 'max_concurrent_agents': (1, 12), 'hang_minutes': (1, 240),
               'max_line_chars': (80, 4000), 'ram_free_warn_mb': (0, 1_000_000)}
-BOOLS = ('concurrency_enforced', 'single_builder', 'close_on_success', 'prompt_in_file', 'report_in_file')
+BOOLS = ('concurrency_enforced', 'single_builder', 'close_on_success', 'prompt_in_file', 'report_in_file', 'roles_enabled')
 
 DEFAULT_RULES = """Quy tắc điều phối agent CMD (chủ máy cấu hình trong Cài đặt). Áp dụng mỗi khi bạn (Agent 0) giao việc cho agent ở cửa sổ CMD qua `open_terminal` / `send_to_terminal` / `read_terminal` / `close_terminal`.
 
@@ -90,7 +91,7 @@ DEFAULT_CHECKLIST = """- Đọc `git status` và `git diff` của thay đổi th
 
 DEFAULT_TEXTS = {'rules': DEFAULT_RULES, 'constraints': DEFAULT_CONSTRAINTS, 'checklist': DEFAULT_CHECKLIST}
 TEXT_TITLES = {'rules': 'Quy tắc điều phối', 'constraints': 'Ràng buộc chung', 'checklist': 'Checklist nghiệm thu'}
-VARIABLES = ('REPO', 'PROMPTS_DIR', 'PROVIDER', 'PROVIDER_MODEL', 'MAX_FIX_ROUNDS', 'MAX_AGENTS_PER_TASK', 'MAX_CONCURRENT', 'MAX_LINE',
+VARIABLES = ('REPO', 'PROMPTS_DIR', 'ROLES_DIR', 'PROVIDER', 'PROVIDER_MODEL', 'MAX_FIX_ROUNDS', 'MAX_AGENTS_PER_TASK', 'MAX_CONCURRENT', 'MAX_LINE',
              'HANG_MINUTES', 'SUBAGENT_POLICY')
 _VAR = re.compile(r'\{([A-Z_]+)\}')
 
@@ -234,13 +235,30 @@ def prompts_dir(cfg, params):
     return Path(chosen) if chosen else Path(cfg.state) / 'prompts'
 
 
+def roles_dir(cfg, params):
+    return prompts_dir(cfg, params) / 'roles'
+
+
+def sync_roles(cfg, params):
+    """Xuất thư viện vai trò và mẫu chuẩn ra thư mục ngoài repo khi roles_enabled bật."""
+    if not params.get('roles_enabled', True):
+        return None
+    from . import roles as role_lib
+    dest = roles_dir(cfg, params)
+    role_lib.sync_to_dir(dest)
+    return dest
+
+
 def render(cfg, rules):
     """Nội dung Agent 0 sẽ nhận sau khi thay biến. Trả (markdown, danh sách biến lạ)."""
+    from . import roles as role_lib
     p = rules['params']
     prov = p['default_provider']
     model = p['provider_models'].get(prov, {})
     model_text = (model.get('model') or 'không chỉ định') + (f' ({model["effort"]})' if model.get('effort') else '')
-    values = {'REPO': str(cfg.repo), 'PROMPTS_DIR': str(prompts_dir(cfg, p)), 'PROVIDER': prov, 'PROVIDER_MODEL': model_text,
+    p_dir = prompts_dir(cfg, p)
+    r_dir = roles_dir(cfg, p)
+    values = {'REPO': str(cfg.repo), 'PROMPTS_DIR': str(p_dir), 'ROLES_DIR': str(r_dir), 'PROVIDER': prov, 'PROVIDER_MODEL': model_text,
               'MAX_FIX_ROUNDS': str(p['max_fix_rounds']), 'MAX_AGENTS_PER_TASK': str(p['max_agents_per_task']),
               'MAX_CONCURRENT': str(p['max_concurrent_agents']), 'MAX_LINE': str(p['max_line_chars']),
               'HANG_MINUTES': str(p['hang_minutes']), 'SUBAGENT_POLICY': p['subagent_policy']}
@@ -257,6 +275,7 @@ def render(cfg, rules):
         return _VAR.sub(sub, text)
 
     yes = lambda flag: 'bật' if flag else 'tắt'
+    roles_on = p.get('roles_enabled', True)
     settings = [
         f'- Agent tương tác chạy cùng lúc tối đa: {p["max_concurrent_agents"]} ({"công cụ chặn mở thêm" if p["concurrency_enforced"] else "chỉ cảnh báo, không chặn"}).',
         f'- Chỉ một agent build/chạy test nặng tại một thời điểm: {yes(p["single_builder"])}.',
@@ -264,11 +283,25 @@ def render(cfg, rules):
         f'- Prompt giao việc phải ghi thành tệp (dòng gõ vào terminal chỉ trỏ tới tệp): {yes(p["prompt_in_file"])}.',
         f'- Báo cáo cuối ghi ra tệp: {yes(p["report_in_file"])}.',
         f'- Thư mục tệp prompt/báo cáo: {values["PROMPTS_DIR"]}',
+        f'- Thư viện vai trò chuyên môn (roles): {yes(roles_on)}' + (f' ({values["ROLES_DIR"]})' if roles_on else '') + '.',
         f'- Cảnh báo khi RAM trống dưới {p["ram_free_warn_mb"]} MB.']
     parts = [fill(rules['texts']['rules']).strip(),
              '### Ràng buộc chung (chép vào mọi prompt giao agent code)\n\n' + fill(rules['texts']['constraints']).strip(),
-             '### Checklist nghiệm thu\n\n' + fill(rules['texts']['checklist']).strip(),
-             '### Thiết lập hiện hành\n\n' + '\n'.join(settings)]
+             '### Checklist nghiệm thu\n\n' + fill(rules['texts']['checklist']).strip()]
+    if roles_on:
+        coding = ', '.join(f'`{r["slug"]}` ({r["label"]})' for r in role_lib.ROLES if r['category'] == 'coding')
+        review = ', '.join(f'`{r["slug"]}` ({r["label"]})' for r in role_lib.ROLES if r['category'] == 'review')
+        tpls = ', '.join(f'`{t["relpath"]}`' for t in role_lib.TEMPLATES)
+        parts.append(
+            '### Thư viện vai trò & mẫu chuẩn\n\n'
+            f'- Bảng điều hướng: `{values["ROLES_DIR"]}/INDEX.md` (đọc khi chọn vai trò hoặc soạn tệp giao việc/sửa/bàn giao).\n'
+            f'- Vai trò coding: {coding}.\n'
+            f'- Vai trò review/nghiệm thu: {review}.\n'
+            f'- Mẫu soạn thảo (trong `{values["ROLES_DIR"]}/`): {tpls}.\n'
+            '- Worker hàng đợi (`enqueue_task` / `enqueue_plan`): truyền `role="<slug>"` để công cụ tự nhúng vai trò vào worktree. '
+            f'Agent cửa sổ CMD: trỏ tệp vai trò tương ứng trong `{values["ROLES_DIR"]}` từ tệp `PROMPT-<việc>.md`.'
+        )
+    parts.append('### Thiết lập hiện hành\n\n' + '\n'.join(settings))
     return '\n\n'.join(parts) + '\n', sorted(unknown)
 
 
@@ -294,6 +327,7 @@ def write_generated(cfg, db, core_file):
     text = core + '## Quy tắc điều phối agent CMD (chủ máy cấu hình)\n\n' + markdown
     try:
         prompts_dir(cfg, rules['params']).mkdir(parents=True, exist_ok=True)
+        sync_roles(cfg, rules['params'])
     except OSError:
         pass
     path = Path(cfg.state) / 'agent0-prompt.generated.md'

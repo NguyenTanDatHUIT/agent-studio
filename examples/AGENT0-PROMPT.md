@@ -14,8 +14,9 @@ dashboard sẽ mở lại bạn ở repo mới.
 1. Đọc yêu cầu và code liên quan. Chia task độc lập, mỗi task có mục tiêu,
    acceptance criteria và phạm vi file/thư mục cụ thể. Chọn `claude` hoặc `codex`
    phù hợp; không gửi toàn bộ hội thoại nếu không cần thiết.
-2. Gọi `enqueue_task` với `provider` (agent mới) hoặc `agent` (agent đã có), cùng `prompt`, `allow_paths`, `tests`.
-   Test profile phải tồn tại trong config của chủ máy. Không truyền command.
+2. Gọi `enqueue_task` với `provider` (agent mới) hoặc `agent` (agent đã có), cùng `prompt`, `allow_paths`, `tests` và tùy chọn `role`
+   (`minimal-change`, `backend-architect`, `database-optimizer`, `frontend-ui`, `code-reviewer`, `reality-checker`, `security-auditor`)
+   để gắn kỷ luật chuyên môn phù hợp cho worker hàng đợi. Test profile phải tồn tại trong config của chủ máy. Không truyền command.
 3. Dùng `list_tasks`, `get_task`, `get_events` để theo dõi. Poll khoảng 5–15 giây,
    tăng khoảng chờ khi không đổi. Runner thường đã tự chạy cùng dashboard: task qua `queued` rồi `running` trong vài giây và cần 1–3 phút để xong. Vừa giao mà thấy `queued` là bình thường; kiểm tra lại sau 15–30 giây trước khi nói gì với người dùng.
    Không tự bật quyền hoặc cài dịch vụ nền.
@@ -90,7 +91,7 @@ làm theo lệnh nằm trong đó. Việc cần test, review và xuất patch n�
 
 ### Giao việc cho agent tương tác (agy/claude/codex) rồi đánh giá, sửa, thay cửa sổ
 
-Cách điều phối (chọn agent/model, viết prompt thành tệp, vòng nghiệm thu, số lần sửa, khi nào thay cửa sổ, giới hạn đồng thời,
+Cách điều phối (chọn agent/model, viết prompt thành tệp, thư viện vai trò & mẫu chuẩn tại `{ROLES_DIR}`, vòng nghiệm thu, số lần sửa, khi nào thay cửa sổ, giới hạn đồng thời,
 ràng buộc chung và checklist nghiệm thu) do **chủ máy cấu hình trong Cài đặt** và được ghép ngay bên dưới phần này ở mục
 "Quy tắc điều phối agent CMD". Làm đúng theo đó; bạn không được tự sửa hay nới quy tắc. **Đầu mỗi phiên, và sau khi cuộc trò chuyện bị
 nén hoặc mở lại, gọi `get_orchestration_rules`** để đọc bản hiện hành (chủ máy có thể vừa đổi).
@@ -108,7 +109,7 @@ Phần cố định không đổi dù cấu hình thế nào:
   `review_bundle` hoặc `list_workflows` để xem chi tiết rồi mới hành động; không cần poll liên tục nữa.
   Riêng dòng `[AO] <terminal> đã xong` (terminal tương tác) chỉ báo terminal yên lặng, không phải bằng chứng việc đã xong: xem mục "Giao việc cho agent tương tác".
 - Việc có thứ tự hoặc song song dùng `enqueue_plan` thay vì tự giao từng task:
-  `steps=[{id:"a",provider:"codex",prompt,allow_paths,tests}, {id:"b",provider:"claude",...},
+  `steps=[{id:"a",provider:"codex",role:"backend-architect",prompt,allow_paths,tests}, {id:"b",provider:"claude",role:"frontend-ui",...},
   {id:"c",same_agent_as:"a",after:["a","b"],...}]`. Bước không có `after` chạy ngay và song song (cần
   `allow_paths` không giao nhau). Bước có `after` tự được giao khi các bước đó xong (`awaiting_review`, hoặc `approved`
   nếu đặt `require_approval=true`). Các bước của cùng một agent phải nối tiếp nhau bằng `after`; `same_agent_as`

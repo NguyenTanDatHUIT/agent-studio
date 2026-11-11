@@ -93,16 +93,39 @@ DONE_MARKER = re.compile(r'Ran\s*\(|Ran \d+ commands?|(?:Baked|Worked|Churned|Co
 IDLE_BUSY_CAP = 1200.0   # seconds of silence after which a "busy" marker is treated as stale and the terminal may be reported
 
 
-def terminal_looks_busy(buffer):
-    """True when the most recent tool/working marker in the terminal output has not been followed by a finished marker."""
+# agy prints other working lines ("Working...", "Spawned 2 subagents", "dotnet build ... running", footer "1 task(s)"). They are
+# "soft" busy signals: they can linger in the buffer after the agent is done, so they only count near the tail, are cleared by a
+# later finished line (including the HOÀN TẤT/ĐANG CHỜ line the shared prompt asks for) and expire sooner than a hard marker.
+SOFT_BUSY_MARKER = re.compile(r'Working\.\.\.|Editing files\.\.\.|Reading files?\.\.\.|Running command\.\.\.|Spawned \d+ subagents?'
+                              r'|chờ \d+ subagent|waiting for \d+ subagents?|\d+ task\(s\)|\.\.\. running', re.IGNORECASE)
+SOFT_DONE_MARKER = re.compile(r'HOÀN TẤT:|ĐANG CHỜ AGENT 0', re.IGNORECASE)
+SOFT_BUSY_CAP = 180.0     # seconds of silence after which a soft busy signal is treated as stale
+SPINNER_QUIET_CAP = 30.0  # a real spinner keeps producing output; a spinner line that stayed silent this long is a stale redraw
+REARM_MIN_BYTES = 200     # output needed after an "idle" verdict before the terminal counts as working again
+
+
+def terminal_busy_kind(buffer):
+    """'hard' (a tool still Running), 'soft' (agy working/subagent/background-task line near the tail) or None."""
     if not buffer:
-        return False
+        return None
     text = BRAILLE_SPINNERS.sub('', ANSI.sub('', bytes(buffer[-12000:]).decode('utf-8', 'replace')))[-6000:]
     busy = [m.start() for m in BUSY_MARKER.finditer(text)]
-    if not busy:
-        return False
-    done = [m.start() for m in DONE_MARKER.finditer(text)]
-    return busy[-1] > (done[-1] if done else -1)
+    if busy:
+        done = [m.start() for m in DONE_MARKER.finditer(text)]
+        if busy[-1] > (done[-1] if done else -1):
+            return 'hard'
+    tail = text[-1500:]
+    soft = [m.start() for m in SOFT_BUSY_MARKER.finditer(tail)]
+    if soft:
+        done = [m.start() for m in SOFT_DONE_MARKER.finditer(tail)]
+        if soft[-1] > (done[-1] if done else -1):
+            return 'soft'
+    return None
+
+
+def terminal_looks_busy(buffer):
+    """True when the most recent tool/working marker in the terminal output has not been followed by a finished marker."""
+    return terminal_busy_kind(buffer) is not None
 
 
 def is_terminal_spinning(buffer):
@@ -366,18 +389,29 @@ class Session:
                 elif entered:
                     self.input_accumulator = ''  # e.g. Enter on a trust dialog: nothing typed yet
         if isinstance(data, str):
-            data = unicodedata.normalize('NFC', data)
+            # Normalize NFC so decomposed Vietnamese diacritics do not split into separate runes,
+            # and map ASCII BS (\x08) to DEL (\x7f) because ConPTY translates \x08 to Ctrl+Backspace (delete whole word).
+            data = unicodedata.normalize('NFC', data).replace('\x08', '\x7f')
         written = wintypes.DWORD()
-        # A Vietnamese IME edits a word as Backspace + replacement letter. Written in one go, a TUI reads both bytes in one chunk,
-        # takes it for a paste/escape and eats the letter before the cursor, so each Backspace/DEL goes down the pipe on its own.
-        pieces = [p for p in re.split(r'([])', data) if p]
+        # A Vietnamese IME (Unikey/EVKey) edits a word as Backspace (\x7f) + replacement letter.
+        # Go TUIs (agy / charmbracelet/ultraviolet) poll PeekConsoleInputW every 10ms; if Backspace and the replacement
+        # character land in the console input buffer within the same 10ms polling window, they are read into one batch.
+        # Pace writes around \x7f by at least 15ms across both single and consecutive write() calls.
+        pieces = [p for p in re.split(r'(\x7f)', data) if p] if isinstance(data, str) else [data]
         with self.lock:
-            for n, piece in enumerate(pieces):
-                raw = piece.encode('utf-8', 'replace')
-                if n and len(pieces) > 1:
-                    time.sleep(0.002)
+            for piece in pieces:
+                is_bs = piece == '\x7f'
+                prev_t = getattr(self, '_last_write_t', 0.0)
+                prev_bs = getattr(self, '_last_write_bs', False)
+                if is_bs or prev_bs:
+                    gap = 0.015 - (time.monotonic() - prev_t)
+                    if gap > 0:
+                        time.sleep(gap)
+                raw = piece.encode('utf-8', 'replace') if isinstance(piece, str) else bytes(piece)
                 if not self.k.WriteFile(self.input, raw, len(raw), ctypes.byref(written), None):
                     raise OrchError('Terminal input failed')
+                self._last_write_t = time.monotonic()
+                self._last_write_bs = is_bs
 
     def resize(self, cols, rows):
         if self.alive and not self.closed:
@@ -944,20 +978,44 @@ class Terminals:
         if not getattr(s, 'has_active_work', False):
             s.idle = True
             return True
-        if getattr(s, 'idle', False):
-            return True
         debounce = self.idle_debounce
         last_out = getattr(s, 'last_output_time', getattr(s, 'created', now))
         last_in = getattr(s, 'last_input', 0.0)
         cond = getattr(s, 'cond', None)
+        # Copy only the tail (the checks read at most 12000 bytes) so many terminals do not hold the output lock for long each tick.
         if cond:
             with cond:
-                buf = bytearray(getattr(s, 'buffer', b''))
+                raw = getattr(s, 'buffer', b'')
+                buf = bytearray(raw[-12000:])
+                end = getattr(s, 'base', 0) + len(raw)
         else:
-            buf = bytearray(getattr(s, 'buffer', b''))
-        if (now - last_out >= debounce) and (now - last_in >= debounce) and not is_terminal_spinning(buf) \
-                and not (terminal_looks_busy(buf) and now - last_out < IDLE_BUSY_CAP):
+            raw = getattr(s, 'buffer', b'')
+            buf = bytearray(raw[-12000:])
+            end = getattr(s, 'base', 0) + len(raw)
+        if getattr(s, 'idle', False):
+            # "Idle" must not be permanent: a terminal that was reported early (build, subagent, waiting) and then resumes would
+            # otherwise never be reported again when it really finishes.
+            at = getattr(s, 'idle_offset', None)
+            if at is not None and end - at >= REARM_MIN_BYTES and (is_terminal_spinning(buf) or terminal_looks_busy(buf)):
+                s.idle, s.idle_notified, s.idle_offset = False, False, None
+                s.idle_reason = 'resumed'
+                return False
+            return True
+        quiet = now - last_out
+        kind = terminal_busy_kind(buf)
+        reason = None
+        if quiet < debounce or now - last_in < debounce:
+            reason = 'debounce'
+        elif is_terminal_spinning(buf) and quiet < SPINNER_QUIET_CAP:
+            reason = 'spinner'
+        elif kind == 'hard' and quiet < IDLE_BUSY_CAP:
+            reason = 'busy-marker'
+        elif kind == 'soft' and quiet < SOFT_BUSY_CAP:
+            reason = 'busy-soft'
+        s.idle_reason = reason or 'quiet'
+        if reason is None:
             s.idle = True
+            s.idle_offset = end
             return True
         return False
 
@@ -966,7 +1024,7 @@ class Terminals:
             self.update_interactive_idle(s)
         return {'id': s.id, 'kind': s.kind, 'provider': getattr(s, 'provider', None), 'task_id': getattr(s, 'task_id', None),
                 'title': s.title, 'cwd': s.cwd, 'alive': s.alive, 'exit_code': s.exit_code, 'readonly': s.kind == 'worker',
-                'agent': getattr(s, 'agent', None), 'idle': getattr(s, 'idle', False), 'remember': getattr(s, 'remember', None),
+                'agent': getattr(s, 'agent', None), 'idle': getattr(s, 'idle', False), 'idle_reason': getattr(s, 'idle_reason', None), 'remember': getattr(s, 'remember', None),
                 'gen': getattr(s, 'created', None)}
 
     def evict_finished(self):
@@ -1082,7 +1140,10 @@ class Terminals:
         for s in list(self.sessions.values()):
             if getattr(s, 'kind', None) != 'agent' or s.id == 'agent0' or not getattr(s, 'alive', False) or getattr(s, 'closed', False) or getattr(s, 'exit_code', None) is not None:
                 continue
-            self.update_interactive_idle(s, now)
+            try:
+                self.update_interactive_idle(s, now)
+            except Exception:
+                continue  # one broken terminal must not stop the others from being reported
             if getattr(s, 'idle', False) and not getattr(s, 'idle_notified', False):
                 provider = getattr(s, 'provider', None)
                 agent_n = getattr(s, 'agent', None)
@@ -1201,10 +1262,54 @@ class Terminals:
             raise OrchError(f'Provider {provider} is not configured')
         return [str(x) for x in command]
 
+    def _write_provider_shims(self):
+        bin_dir = self.cfg.state / 'bin'
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        for name in TERMINAL_AGENTS:
+            shim = bin_dir / f'{name}.cmd'
+            cmd = self.cfg.data.get('providers', {}).get(name, {}).get('command')
+            if cmd and Path(cmd[0]).is_file():
+                inner = ' '.join(quote(str(x)) for x in cmd).replace('%', '%%')
+                shim.write_text(f'@echo off\r\n{inner} %*\r\n', encoding='utf-8')
+            elif shim.is_file():
+                try:
+                    shim.unlink()
+                except OSError:
+                    pass
+        return bin_dir
+
+    def _shell_wrap(self, conv_id, argv, resumed=False):
+        if os.name != 'nt':
+            return argv
+        shells_dir = self.cfg.state / 'shells'
+        shells_dir.mkdir(parents=True, exist_ok=True)
+        bat = shells_dir / f'{conv_id}.cmd'
+        inner = ' '.join(quote(str(a)) for a in argv).replace('%', '%%')
+        lines = [
+            '@echo off',
+            'chcp 65001 >nul',
+            inner,
+        ]
+        if resumed:
+            lines.append(
+                'if errorlevel 1 echo \x1b[31;1m[AO] Khong the resume phien cu (session khong con hoac loi khoi dong). '
+                "De nghi mo 'Xem lai' de xem ban ghi man hinh truoc do.\x1b[0m"
+            )
+        lines.append('@echo on')
+        bat.write_text('\r\n'.join(lines) + '\r\n', encoding='utf-8')
+        return ['cmd.exe', '/d', '/k', str(bat)]
+
     def base_env(self):
         # Start a clean session: drop identifiers of whichever Claude Code session launched this server.
         parent_session = re.compile(r'^(CLAUDECODE|CLAUDE_PID|CLAUDE_CODE_(CHILD_SESSION|ENTRYPOINT|MESSAGING_.*|SESSION_.*))$')
         env = {k: v for k, v in os.environ.items() if not parent_session.match(k)}
+        if os.name == 'nt':
+            try:
+                bin_dir = str(self._write_provider_shims())
+                path_key = next((k for k in env if k.upper() == 'PATH'), 'PATH')
+                env[path_key] = bin_dir + os.pathsep + env.get(path_key, '')
+            except OSError:
+                pass
         env['TERM'] = 'xterm-256color'
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
@@ -1357,14 +1462,13 @@ class Terminals:
                 else:
                     sess_id = resume
                     argv = cmd_base
-                if os.name == 'nt' and provider in ('agy', 'codex'):
-                    inner = ' '.join(quote(a) for a in argv)
-                    argv = ['cmd.exe', '/d', '/c', f'chcp 65001 >nul && {inner}']
             else:
                 raise OrchError('Unknown terminal kind')
 
             if kind == 'agent0' and key not in self.sessions and len(self.sessions) >= MAX_SESSIONS and not self.evict_finished():
                 raise OrchError(f'Đã mở {MAX_SESSIONS} cửa sổ. Đóng bớt một cửa sổ rồi thử lại.')
+
+            argv = self._shell_wrap(conv_id, argv, resumed=bool(resume))
 
             # Register conversation in DB
             self.db.conversation_add({
@@ -1390,6 +1494,10 @@ class Terminals:
                     pass
 
             def on_exit(code):
+                try:
+                    (self.cfg.state / 'shells' / f'{conv_id}.cmd').unlink(missing_ok=True)
+                except OSError:
+                    pass
                 try:
                     self.db.conversation_update(conv_id, status='closed', last_active=datetime.now(timezone.utc).isoformat())
                 except Exception:

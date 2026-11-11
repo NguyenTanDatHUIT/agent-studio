@@ -7,3 +7,6 @@ dist/
 .runtime/
 .review-tmp/
 .local-run/
+
+# Prompt/báo cáo giao việc cho agent (không đưa lên git)
+NhatKyCongViec/promt/

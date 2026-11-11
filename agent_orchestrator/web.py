@@ -413,12 +413,14 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return self.reply(200, {'repo': str(root), 'folders': sorted(folders)})
         if path == '/api/config' and not mutation:
+            from .roles import role_choices
             return self.reply(200, {'repo': str(e.cfg.repo), 'base_ref': e.cfg.data.get('base_ref', 'HEAD'),
                                    'demo': e.cfg.data.get('demo') is True,
                                    'execution_enabled': e.cfg.data.get('acknowledge_local_execution') is True,
                                    'providers': {k: bool(v.get('command')) for k, v in e.cfg.data.get('providers', {}).items() if k in {'claude', 'codex'}},
                                    'terminal_agents': [k for k in TERMINAL_AGENTS if e.cfg.data.get('providers', {}).get(k, {}).get('command')],
                                    'repos': list(e.cfg.repos),
+                                   'roles': role_choices(),
                                    'tests': list(e.cfg.data.get('tests', {}))})
         if path == '/api/workflows':
             if not mutation:
@@ -445,13 +447,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'default_remember': e.default_remember(), 'notify_agent0': bool(e.db.setting('notify_agent0', True))})
         if path.startswith('/api/orchestration-rules'):
             from . import rules as orch_rules
+            from .roles import catalog_with_content
             repos = list(e.cfg.repos.values())
 
             def rules_view():
                 data, markdown, unknown = orch_rules.current(e.cfg, e.db)
+                try:
+                    orch_rules.sync_roles(e.cfg, data['params'])
+                except OSError:
+                    pass
+                rdir = orch_rules.roles_dir(e.cfg, data['params'])
                 agent0 = self.server.terminals.sessions.get('agent0')
                 return {'params': data['params'], 'texts': data['texts'], 'default': orch_rules.defaults(), 'preview': markdown,
                         'unknown_variables': unknown, 'digest': orch_rules.digest(markdown), 'variables': list(orch_rules.VARIABLES),
+                        'roles_dir': str(rdir), 'roles': catalog_with_content(rdir),
                         'applied_digest': e.db.setting(orch_rules.APPLIED_KEY, None),
                         'agent0_running': bool(agent0 is not None and getattr(agent0, 'alive', False)),
                         'text_limit': orch_rules.TEXT_LIMIT, 'history': [{'time': h.get('time')} for h in orch_rules.history(e.db)]}
@@ -488,10 +497,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'agent': int(match[1]), 'remember_context': body['remember_context']})
         if path == '/api/tasks':
             if mutation:
-                if not {'prompt', 'allow_paths', 'tests'} <= set(body) <= {'provider', 'prompt', 'allow_paths', 'tests', 'agent', 'remember', 'repo'}:
-                    raise OrchError('Expected prompt, allow_paths, tests and provider or agent (optional remember)')
+                if not {'prompt', 'allow_paths', 'tests'} <= set(body) <= {'provider', 'prompt', 'allow_paths', 'tests', 'agent', 'remember', 'repo', 'role'}:
+                    raise OrchError('Expected prompt, allow_paths, tests and provider or agent (optional remember, role)')
                 return self.reply(201, e.enqueue(body.get('provider'), body['prompt'], body['allow_paths'], body['tests'],
-                                                 agent=body.get('agent'), remember=body.get('remember'), repo=body.get('repo')))
+                                                 agent=body.get('agent'), remember=body.get('remember'), repo=body.get('repo'),
+                                                 role=body.get('role')))
             return self.reply(200, [e.db.get(row['id']) for row in e.db.list(limit=200, all_chats=query.get('scope', [''])[0] == 'all')])
         if path == '/api/activity' and not mutation:
             return self.reply(200, e.db.activity(40, all_chats=query.get('scope', [''])[0] == 'all'))

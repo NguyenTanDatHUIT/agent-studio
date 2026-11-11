@@ -104,7 +104,7 @@ class TestInteractiveIdle(WorkflowBase):
         self.assertFalse(agy.idle_notified)
 
         # Output arriving
-        agy.emit_output("Working...\n")
+        agy.emit_output("Analysis summary written\n")
         self.t.last_notice_sent = 0.0
         self.t.notify_agent0()
         self.assertEqual(self.agent0.written, [], "Must not notify before debounce period")

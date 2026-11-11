@@ -18,17 +18,20 @@ const convs = [
   { id: 'c3', terminal_key: 'codex-1', provider: 'codex', agent_n: 1, kind: 'agent', cwd: 'C:\\x', task_id: 'a'.repeat(24), session_id: 's3', title: null, started: at(1, 22, 10), last_active: at(1, 22, 20), status: 'failed', live: false },
 ];
 const api = {
-  '/api/config': { repo: 'C:/fixture', base_ref: 'HEAD', providers: { claude: true, codex: true }, tests: ['unit', 'functional'], execution_enabled: true },
+  '/api/config': { repo: 'C:/fixture', base_ref: 'HEAD', providers: { claude: true, codex: true }, tests: ['unit', 'functional'], execution_enabled: true,
+    roles: [{ slug: 'minimal-change', category: 'coding', label: 'Sửa tối giản (Minimal Change)', summary: 'Diff nhỏ nhất' }, { slug: 'backend-architect', category: 'coding', label: 'Kiến trúc & Dịch vụ Backend', summary: 'API & Service' }] },
   '/api/tasks': [], '/api/activity': [], '/api/runners': { managed: false, providers: {} }, '/api/agent0': { connected: false },
   '/api/terminals': [], '/api/agents': [], '/api/settings': { default_remember: true }, '/api/workflows': [], '/api/conversations': convs,
   '/api/chat': { windows: 3, tasks: 0, workflows: 0, can_start: true, reason: null, agent0: true },
 };
 const rulesParams = { default_provider: 'agy', provider_models: { agy: { model: 'Gemini 4 Argon', effort: 'medium' }, claude: { model: '', effort: '' }, codex: { model: '', effort: '' } },
   max_fix_rounds: 2, max_agents_per_task: 2, max_concurrent_agents: 3, concurrency_enforced: true, single_builder: true, close_on_success: true,
-  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000 };
+  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true };
 const rulesTexts = { rules: '**1. Vai trò.** Bạn chỉ điều phối và nghiệm thu bằng bằng chứng thật. **4. Vòng lặp nghiệm thu.** Sau {MAX_FIX_ROUNDS} lần sửa vẫn chưa đạt thì thay cửa sổ.', constraints: '- Không push, không merge nếu chủ máy chưa yêu cầu.', checklist: '- Đọc git status và git diff của thay đổi thật.' };
 api['/api/orchestration-rules'] = { params: rulesParams, texts: rulesTexts, default: { params: rulesParams, texts: rulesTexts }, preview: 'Xem trước nội dung đã thay biến.', unknown_variables: [],
-  digest: 'a', applied_digest: 'b', agent0_running: true, text_limit: 15000, variables: ['REPO', 'PROMPTS_DIR', 'PROVIDER', 'PROVIDER_MODEL', 'MAX_FIX_ROUNDS', 'MAX_AGENTS_PER_TASK', 'MAX_CONCURRENT', 'MAX_LINE', 'HANG_MINUTES', 'SUBAGENT_POLICY'],
+  digest: 'a', applied_digest: 'b', agent0_running: true, text_limit: 15000, variables: ['REPO', 'PROMPTS_DIR', 'ROLES_DIR', 'PROVIDER', 'PROVIDER_MODEL', 'MAX_FIX_ROUNDS', 'MAX_AGENTS_PER_TASK', 'MAX_CONCURRENT', 'MAX_LINE', 'HANG_MINUTES', 'SUBAGENT_POLICY'],
+  roles_dir: 'C:\\Users\\owner\\AppData\\Local\\agent-orchestrator\\prompts\\roles',
+  roles: [{ slug: 'index', category: 'index', label: 'Bảng điều hướng', summary: 'Hướng dẫn chọn vai trò và mẫu theo tình huống.', relpath: 'INDEX.md', path: 'C:\\Users\\owner\\AppData\\Local\\agent-orchestrator\\prompts\\roles\\INDEX.md', content: '# Thư viện vai trò & mẫu chuẩn\n- coding/minimal-change.md\n- review/reality-checker.md' }],
   history: [{ time: '2026-11-09T10:15:00+00:00' }, { time: '2026-11-08T21:02:00+00:00' }] };
 api['/api/orchestration-rules/preview'] = api['/api/orchestration-rules'];
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' };

@@ -11,6 +11,7 @@ import sys
 import time
 
 from .config import OrchError
+from .roles import ROLE_SLUGS, role_choices
 
 
 def schema(properties, required=()):
@@ -23,13 +24,16 @@ DEFINITIONS = [
     ('enqueue_task', 'Queue bounded work; does not execute a CLI. Owner runner must be active. '
      'Pass provider alone to create a NEW numbered agent (e.g. "codex 3"). Pass agent=N to give that existing agent more work: '
      'by default it continues its previous task in the same worktree and remembers the conversation (the owner can change the default per agent). '
-     'Set remember=false for this task only to start fresh from the base commit instead.',
+     'Set remember=false for this task only to start fresh from the base commit instead. '
+     'Optionally pass role (e.g. "minimal-change", "backend-architect", "database-optimizer", "frontend-ui", "code-reviewer", "reality-checker", "security-auditor") '
+     'to inject a standardized specialist discipline into the worker prompt.',
      schema({'provider': {'type': 'string', 'enum': ['claude', 'codex']}, 'agent': {'type': 'integer', 'minimum': 1},
-             'remember': {'type': 'boolean'}, 'repo': STRING, 'prompt': STRING,
+             'remember': {'type': 'boolean'}, 'repo': STRING, 'role': {'type': 'string', 'enum': list(ROLE_SLUGS)},
+             'prompt': STRING,
              'allow_paths': {'type': 'array', 'items': STRING, 'minItems': 1},
              'tests': {'type': 'array', 'items': STRING, 'minItems': 1}}, ('prompt', 'allow_paths', 'tests'))),
     ('enqueue_plan', 'Create a WORKFLOW: several steps with dependencies, executed automatically. Each step: id, prompt, allow_paths, tests, '
-     'optional after (list of step ids that must finish first) and optional repo, plus exactly one of provider (new agent), agent (existing queue agent number) '
+     'optional after (list of step ids that must finish first), optional repo and optional role (specialist profile slug), plus exactly one of provider (new agent), agent (existing queue agent number) '
      'or same_agent_as (a step id: the agent of that step continues in its own worktree). Steps without after start immediately and run in parallel; '
      'a step starts when all its after-steps reached awaiting_review (or approved when require_approval=true). Parallel steps need disjoint allow_paths; '
      'steps of one agent must be chained with after. Later steps receive a short summary of the results of their dependencies, not their code unless it is the same agent. '
@@ -200,7 +204,9 @@ class Server:
         if name == 'get_orchestration_rules':
             from . import rules
             data, markdown, unknown = rules.current(e.cfg, e.db)
-            return {'rules_markdown': markdown, 'params': data['params'], 'digest': rules.digest(markdown), 'unknown_variables': unknown}
+            return {'rules_markdown': markdown, 'params': data['params'], 'digest': rules.digest(markdown),
+                    'unknown_variables': unknown, 'roles_dir': str(rules.roles_dir(e.cfg, data['params'])),
+                    'roles': role_choices()}
         if name == 'list_agents':
             return e.agents_overview()
         if name == 'enqueue_plan':

@@ -643,6 +643,49 @@ class TestTerminalResumeAndTranscripts(unittest.TestCase):
         found = scan_codex_session(time.time(), str(self.repo), timeout=0.3, codex_home=codex_home)
         self.assertIsNone(found)
 
+    @unittest.skipUnless(os.name == 'nt', 'ConPTY requires Windows')
+    def test_exit_claude_and_type_agy_in_same_terminal(self):
+        import sys
+        fake_claude = self.tmp / 'fake_claude.py'
+        fake_claude.write_text(
+            'import sys\n'
+            'print("CLAUDE_DEFAULT_STARTED", flush=True)\n'
+            'for line in sys.stdin:\n'
+            '    if "/exit" in line:\n'
+            '        print("CLAUDE_EXITED", flush=True)\n'
+            '        sys.exit(0)\n',
+            encoding='utf-8'
+        )
+        fake_agy = self.tmp / 'fake_agy.py'
+        fake_agy.write_text(
+            'import sys\n'
+            'print("AGY_LAUNCHED_OK", flush=True)\n',
+            encoding='utf-8'
+        )
+        self.cfg.data['providers']['claude']['command'] = [sys.executable, str(fake_claude)]
+        self.cfg.data['providers']['agy']['command'] = [sys.executable, str(fake_agy)]
+
+        self.terminals.open('agent0')
+        session = self.terminals.sessions['agent0']
+
+        def wait_for(marker, timeout=10.0):
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                text = self.terminals.tail('agent0', chars=6000)['text']
+                if marker in text:
+                    return text
+                time.sleep(0.1)
+            self.fail(f'Did not see {marker!r} in terminal output: {self.terminals.tail("agent0", chars=6000)["text"]!r}')
+
+        wait_for('CLAUDE_DEFAULT_STARTED')
+        session.write('/exit\r')
+        wait_for('CLAUDE_EXITED')
+        self.assertTrue(session.alive)
+
+        session.write('agy\r')
+        wait_for('AGY_LAUNCHED_OK')
+        self.assertTrue(session.alive)
+
 
 
 class TestWebHistoryApi(unittest.TestCase):

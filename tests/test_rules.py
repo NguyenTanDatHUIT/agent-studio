@@ -93,14 +93,17 @@ class Rendering(Base):
         self.assertIn(str(self.state / 'prompts'), md)
         self.assertIn('{BIEN_LA}', md)
         self.assertEqual(unknown, ['BIEN_LA'])
-        self.assertNotRegex(md, r'\{(REPO|PROMPTS_DIR|MAX_[A-Z_]+|PROVIDER[A-Z_]*|HANG_MINUTES|SUBAGENT_POLICY)\}')
+        self.assertNotRegex(md, r'\{(REPO|PROMPTS_DIR|ROLES_DIR|MAX_[A-Z_]+|PROVIDER[A-Z_]*|HANG_MINUTES|SUBAGENT_POLICY)\}')
         self.assertIn('Gemini 4 Argon (medium)', md)
+        self.assertIn(str(self.state / 'prompts' / 'roles'), md)
 
     def test_toggles_show_in_current_settings(self):
-        rules.save(self.db, {'params': {'single_builder': False, 'concurrency_enforced': False}})
+        rules.save(self.db, {'params': {'single_builder': False, 'concurrency_enforced': False, 'roles_enabled': False}})
         md = rules.current(self.cfg, self.db)[1]
         self.assertIn('Chỉ một agent build/chạy test nặng tại một thời điểm: tắt', md)
         self.assertIn('chỉ cảnh báo, không chặn', md)
+        self.assertIn('Thư viện vai trò chuyên môn (roles): tắt', md)
+        self.assertNotIn('### Thư viện vai trò & mẫu chuẩn', md)
 
 
 class Agent0(Base):
