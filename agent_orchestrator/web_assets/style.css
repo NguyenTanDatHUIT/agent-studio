@@ -419,10 +419,20 @@ html,body{margin:0;padding:0;background:#f5f7f9}body{font-family:'Segoe UI',Aria
 
 /* Compact window title bar: drag | icon | name | id/status | minimise, maximise, close */
 #ao-studio .ao-terminal-head{padding:2px 3px 2px 8px}
-#ao-studio .ao-terminal-title-row{gap:6px;min-height:28px}
+#ao-studio .ao-terminal-title-row{gap:6px;min-height:28px;align-items:center}
 #ao-studio .ao-terminal-name{flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
-#ao-studio .ao-terminal-meta{flex:1 1 0;min-width:0;margin:0;display:flex;justify-content:flex-start;flex-wrap:nowrap;gap:8px;overflow:hidden;white-space:nowrap}
-#ao-studio .ao-terminal-meta code{overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+#ao-studio .ao-terminal-meta{flex:1 1 0;min-width:0;margin:0;display:inline-flex;align-items:center;justify-content:flex-start;flex-wrap:nowrap;gap:8px;overflow:visible;white-space:nowrap}
+#ao-studio .ao-terminal-meta code{min-width:0;max-width:none;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal;white-space:nowrap}
+#ao-studio .st-radar{--size:18px;position:relative;display:inline-flex;align-items:center;justify-content:center;align-self:center;width:var(--size);height:var(--size);border-radius:50%;box-sizing:border-box;flex-shrink:0;vertical-align:middle}
+#ao-studio .st-radar.running{background:rgba(34,197,94,.1);border:1.5px solid rgba(34,197,94,.45)}
+#ao-studio .st-radar.running::before{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid #22c55e;opacity:0;animation:st-radar-alert 1.1s ease-out infinite}
+#ao-studio .st-radar.running::after{content:"";position:relative;z-index:1;width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.85),0 0 10px rgba(34,197,94,.5);animation:st-radar-blink 1.1s ease-in-out infinite}
+#ao-studio .st-radar.stopped{background:rgba(239,68,68,.1);border:1.5px solid rgba(239,68,68,.45)}
+#ao-studio .st-radar.stopped::before{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid #ef4444;opacity:0;animation:st-radar-alert 1.1s ease-out infinite}
+#ao-studio .st-radar.stopped::after{content:"";position:relative;z-index:1;width:6px;height:6px;border-radius:1.5px;background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.85);animation:st-radar-blink 1.1s ease-in-out infinite}
+@keyframes st-radar-alert{0%{transform:scale(.8);opacity:.85}100%{transform:scale(1.3);opacity:0}}
+@keyframes st-radar-blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.25;transform:scale(.85)}}
+@media(prefers-reduced-motion:reduce){#ao-studio .st-radar.running::before,#ao-studio .st-radar.running::after,#ao-studio .st-radar.stopped::before,#ao-studio .st-radar.stopped::after{animation:none!important}}
 #ao-studio .ao-winctl{display:flex;flex:none;margin-left:auto}
 #ao-studio .ao-winbtn{width:34px;height:26px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--ao-text);display:grid;place-items:center;cursor:pointer}
 #ao-studio .ao-winbtn svg{width:14px!important;height:14px!important}
