@@ -1,0 +1,50 @@
+# 11/11/2026 (~18:00, tối) — Bàn giao phiên PM (Agent 0): E3f đã vào main (đã push); E6b đợt 2/3 đang sửa lỗi; E3g + thiết kế D11-2b đang chạy
+
+> Bản này NỐI TIẾP `2026-11-11-ban-giao-phien-pm-dem-chuoi-tien-e3-e6b-bhyt.md` (đọc bản đó trước cho quy tắc, ô build, quy trình nghiệm thu, quyết định đã chốt). Vai: Agent 0 (PM/điều phối) HIS_EMR, `C:\CongViec\itc-git\HIS_EMR`. Chỉ điều phối + nghiệm thu bằng bằng chứng; chỉ dùng `agy`; KHÔNG dựng Monitor (chủ dự án: dashboard đã gửi `[AO]`); chưa làm Controller/View; PM được merge + push `main` khi mọi cổng đạt rồi báo sau.
+> **Chủ dự án vừa bảo "ghi bàn giao và NGƯNG GIAO VIỆC": KHÔNG giao việc mới cho tới khi phiên sau bắt đầu và chủ dự án cho phép.** Các agent đang chạy bên dưới đã được giao trước đó.
+
+## 1. Trạng thái `main` (đo ~18:00)
+- **`main` = `origin/main` = `82da80fe` (merge E3f) ĐÃ PUSH** (~18:10, fast-forward). Đã kiểm trên `main`: build `Service.Core` (2151 cảnh báo), `Service.Billing` (50), `Service.Inpatient` (264), `Web.HIS` (992), `Web.ISign` (0): 0 lỗi cả 5; hai lớp test quy ước **29 xanh / 0 đỏ / 1 bỏ qua** (log `C:\AgentControl\studio-state\verify-main-e3f.log`). Đã dọn worktree + nhánh `wt/e3f`. Worktree còn: `C:\wt\e3g`, `C:\wt\e6b2`, `C:\wt\e6b3`.
+- Chưa commit (KHÔNG phải của PM, đừng commit hộ): `NhiDong/Plan Coding/CLAUDE.md`, các `NhatKyCongViec/*`, báo cáo tiến độ.
+
+## 2. E3f (hệ số mức hưởng nội trú trái tuyến) — XONG, đã push
+2 commit `c1a8485c`, `dfdf8597` + merge `82da80fe`. PM đã đọc toàn bộ diff; review độc lập (`REVIEW-E3F.md`, agy-22): **ĐẠT**, 0 CAO/TRUNG. Tham số `InpatientWrongRouteBenefitPercent` mặc định 100 (KHÔNG giảm), kẹp 1..100, `app_settings` tab `Inpatient`. **Đừng bật 40 cho tới khi E3g (mục 5) xong và chủ dự án chốt cấp chuyên môn bệnh viện.**
+
+## 3. E6b đợt 2 (`C:\wt\e6b2`, `wt/e6b2`, HEAD `289fcc4e`, base `d8c9d48f`) — review độc lập: KHÔNG ĐẠT, đang sửa
+`REVIEW-E6B2.md` (agy-20, đã đóng). **C1 (CAO, PM đã tự xác minh):** `DispenseInpatientOrderCommand.cs:612-613` truyền `InsuranceCoverageRate = CatalogInsuranceCoverageRate` (100) kể cả khi thuốc không có giá BHYT (`InsurancePrice = 0`) ⇒ `RecordCharge` tính BHYT 80% trên giá tự trả. **T1 (TRUNG, PM đã xem dòng 519):** `VoidOrderCharge` (`PaymentCommand.cs:519`) chỉ giữ khoản đã thu khi có `PaymentIntentId`; khoản trả bằng ví (`PaymentIntentId = null`, `FinalPrice > 0`) bị hủy mất tiền ví (agent phải tự xác nhận bên ví trước khi sửa).
+- **Đang chạy: agy-23**, `PROMPT-WT-E6B2-FIX2.md` (2 commit: sửa C1; sửa T1 + liệt kê mọi nơi gọi `VoidOrderCharge`) → `BAOCAO-WT-E6B2.md` mục "Sửa lần 2".
+- Ghi nợ (KHÔNG sửa ở đợt này, chuyển E7/D11): T2 (`VoidOrderCharge` không khóa dòng `encounter_charges`, đua với `SettlePayment`), T3 (khoản kẹt trong QR chờ còn sống khi QR hết hạn, cần quét đối soát dòng `RETURNED` còn khoản `Status >= 0`), L1 (phát gộp `NursingTaskId = null` nhiều lô khác giá), L2 (`CheckRecordChargeExistingOwner` bỏ kiểm `callerEncounterId` khi cùng đợt), L3 (thiếu log đóng cảnh báo khi trả gộp đủ).
+- Sau khi agy-23 báo `HOÀN TẤT`: PM đọc diff (đặc biệt mọi nơi gọi `VoidOrderCharge`, ngoại trú), tự build + 2 lớp test, nghiệm thu; đã có review độc lập cho đợt 2 nên chỉ cần review ngắn phần sửa nếu diff vượt dự kiến; rồi merge `--no-ff wt/e6b2`, build lại Billing, Inpatient, InpatientPharmacy, Web.HIS, Web.ISign + 2 lớp test, push, dọn worktree.
+
+## 4. E6b đợt 3 (`C:\wt\e6b3`, `wt/e6b3`, base `d8c9d48f`) — review: ĐẠT CÓ ĐIỀU KIỆN, đang sửa
+`REVIEW-E6B3.md` (agy-19, đã đóng): không deadlock; thứ tự khóa khớp `RowLockTables`. **TRUNG-1 (PM xác minh):** `orderPeek` đọc trước `LockRow("inpatient_admissions")` ⇒ y lệnh vừa đổi `OPEN_ENDED→FIXED_TERM` có thể bỏ tự chốt. **TRUNG-2 (PM xác minh: không có `VoidOrderCharge` nào trong `Service.Nursing`):** việc loại 5/6 đã Completed rồi `RECLAIM` hoặc đính chính sang "Không làm/Từ chối" ⇒ khoản thu vẫn còn.
+- **Đang chạy: agy-21**, `PROMPT-WT-E6B3-FIX1.md`. Lúc đo: commit `8bb46c02` (TRUNG-1) đã xong; TRUNG-2 đang sửa dở (2 tệp `ReleaseOrReclaimNursingTaskCommand.cs`, `ReviewNursingRecordCorrectionCommand.cs` chưa commit).
+- **CHƯA GIAO, chờ agy-21 xong FIX1:** `PROMPT-WT-E6B3-FIX2.md` (đã soạn, cùng tệp `CompleteNursingTaskCommand.cs` nên không chạy song song): **tạm KHÔNG tự ghi khoản cho việc OXY** (loại 6), chỉ ghi nhật ký; việc `CareProcedure` (5) giữ nguyên. Căn cứ: phân tích P-E2 (oxy thường tính theo ca ≤ 8 giờ/ngày nhưng việc theo dõi tạo mỗi 1–2 giờ ⇒ thu thừa 4–8 lần). **Quyết định này CHƯA được chủ dự án chốt rõ** (chủ dự án chỉ nói "làm theo đề xuất"): hỏi lại khi báo cáo. Thủ thuật đặt lưu (sonde) cũng có rủi ro thu lặp, chờ `billing_trigger_mode`.
+- Sau đó: nghiệm thu (đọc diff, build Nursing/Billing/Web.HIS/Web.ISign + 2 lớp test), tùy ý chạy review ngắn cho phần TRUNG-2, merge/push. E6b2 và E6b3 sửa tệp khác nhau nhưng phải BUILD LẠI sau mỗi merge.
+
+## 5. Việc đã giao và đang chạy lúc dừng
+- **agy-24 — thiết kế D11-2b** (chỉ-đọc, không code): `PROMPT-THIETKE-D11-2B.md` → `THIETKE-D11-2B.md` (xử lý dòng bảng kê, duyệt/mở khóa, khóa chống đua, DDL cần thêm, kế hoạch chia đợt, câu hỏi cho chủ dự án). Khi xong: PM đọc, đối chiếu với DDL/mã thật, đưa chủ dự án duyệt (DDL) TRƯỚC khi giao code. Tài liệu phân tích ngoài (`Downloads\ph_n_t_ch_nghi_p_v_...md`) chứa số hiệu văn bản pháp lý CHƯA đối chiếu bản gốc: KHÔNG đưa vào mã/thiết kế như sự thật.
+- **agy-25 — E3g** (`C:\wt\e3g`, `wt/e3g`, base `82da80fe`): `PROMPT-WT-E3G.md` → `BAOCAO-WT-E3G.md`. Ba điểm liên module từ review E3f: (1) `RecordPatientSupplyUsage` tự suy `AdmissionId` từ `EncounterId` nội trú khi đúng 1 đợt; (2) `AdmitFromEmergency` kiểm `BhytRoutes.IsValid` + sửa chú thích đảo nghĩa `bhyt_route` + ghi chú "`BenefitRate` là mức TRÊN THẺ, chưa nhân hệ số" (tránh nhân đôi 32%→12,8%); (3) `ChangePayer` sang BHYT khi `bhyt_route` null chỉ ghi nhật ký cảnh báo. Worktree lúc giao còn `locked` (đang giải nén). Chưa có review độc lập: do đây là ba sửa nhỏ nhưng chạm tiền (mức hưởng), nên PM tự đọc kỹ diff và giao review ngắn bằng agy mới nếu thấy cần.
+- Cửa sổ agy đang mở: **agy-21, agy-23, agy-24, agy-25**. Đã đóng: agy-17, 19, 20, 22. Đóng mỗi cửa sổ sau khi nghiệm thu. RAM trống ~3,4 GB lúc đo (ngưỡng cảnh báo 2.000 MB): đừng mở thêm khi nhiều agent đang build.
+- Khi nhận `[AO] <agy-N> đã xong`: KHÔNG tin, đọc `read_terminal(clean=true)`, `git log base..HEAD` + `git status` sạch + báo cáo + dòng `HOÀN TẤT`.
+
+## 6. Quyết định đang CHỜ chủ dự án (không tự chốt)
+1. **P-E2:** tạm tắt khoản oxy tự động (mục 4) có đúng ý không; đơn vị tính giá oxy/thủ thuật lặp (theo lần/ca/giờ/ngày); có cần cột `billing_trigger_mode` trên danh mục dịch vụ (đổi DDL).
+2. **Cấp chuyên môn kỹ thuật của bệnh viện** (cơ bản hay chuyên sâu; tuyến trước 01/01/2025) ⇒ giá trị chốt `InpatientWrongRouteBenefitPercent` (100 hay 40). Số 40/15 ngày/lương cơ sở... đều nguồn thứ cấp, chưa đối chiếu văn bản gốc.
+3. **Bộ kiểm thử tích hợp trên PostgreSQL thật cho mã tiền (P-A1):** đã được chủ dự án đồng ý ("làm theo đề xuất") nhưng CHƯA giao: hạ tầng có sẵn (`Tests/run-with-temp-postgres.sh`, `Tests/Postgres.DrillTests/PaymentCoreTests.cs`, `HIS_TEST_PG`); cần **bật Docker Desktop** (đang tắt; chỉ dùng container `his-test-pg-*` tạm, TUYỆT ĐỐI không đụng `ricons-*`, `worldpulse-*`, `newsolution-*`); chỉ giao sau khi E3f/E6b2/E6b3 đã vào `main`. 7 nhóm ca: idempotent/đua `23505`+`25P02` trong giao dịch chung, mức hưởng (ân hạn 1/15/16 ngày, trái tuyến), phát/trả thuốc, hoàn tất việc điều dưỡng, `FeeBoardOne` không cộng đúp, ràng buộc cột, thứ tự khóa.
+4. **Cần duyệt DDL trước khi giao code:** P-B1 (đa thẻ/trình thẻ muộn, bảng `admission_insurance_cards`, cột `applied_card_id`), P-B3 (công thức chuẩn, cột `bhyt_scope_amount`/`copay_amount`), D11-2b (sau `THIETKE-D11-2B.md`), `billing_trigger_mode`.
+5. Các câu hỏi cũ còn mở (bản bàn giao trước mục 6): 10 mã chặn trước ra viện (đề xuất phân 3 cổng), ví người bệnh ngoại trú (đề xuất tắt lưu số dư qua ngày), quyền thu ngân/mở khóa bảng kê, chặn cứng thiếu giá, có commit nhật ký bàn giao không, commit `BAO-CAO-TIEN-DO-TONG-THE`.
+6. **Ghi nợ khác (chưa giao):** nợ nối module (hook đóng lượt cấp cứu khi `ReceivePatient` cần THIẾT KẾ vì `Nursing` không được tham chiếu `Emergency` theo bảng T10; baseline `his-service-public-surface.txt`; B2 `--no-incremental` khi không ai build); điểm THẤP của review E3f/E6b2/E6b3; seed `record_catalog_*` (P-F1) chờ KHTH. Múi giờ: `ClockNow()` = `DateTime.Now` ⇒ **máy chủ phải đặt múi giờ UTC+7**, không phải lỗi mã.
+
+## 7. Đánh giá tiến độ (ước tính của PM, KHÔNG phải số đo)
+Tầng Service GĐ2: ~91% theo khối lượng mã đã viết; ~80% nếu tính cả việc mã tiền đã chạy kiểm thử thật (hiện 0%). Theo khối: DB/Entity, GĐ1, GĐ-M, A0–A6c đều ~100% (A1 thiếu 3 ca giá giường); luồng `E0–E7` ~60%; `D11` ~35%; giá ngày giường `E2b` ~40% (đang tắt). `BAO-CAO-TIEN-DO-TONG-THE.md` còn ghi 88% (14:10) nên đã cũ; chưa cập nhật vì chưa được cho commit. Điểm nghẽn chính là quyết định/DDL ở mục 6.
+
+## 8. Việc đề xuất khi chủ dự án cho phép làm tiếp (theo thứ tự)
+1. Kiểm `verify-main-e3f.log` → push `main` (mục 1).
+2. Nghiệm thu agy-23 (E6b2 FIX2), agy-21 (E6b3 FIX1) → giao FIX2 oxy nếu chủ dự án xác nhận → merge/push cả hai.
+3. Nghiệm thu E3g (agy-25) và đọc `THIETKE-D11-2B.md` (agy-24); hỏi chủ dự án các quyết định mục 6.
+4. Sau khi ba đợt vào `main` và Docker bật: giao bộ kiểm thử PostgreSQL thật (P-A1).
+5. Đếm lại tiến độ theo từng kế hoạch và cập nhật báo cáo tổng thể (khi được phép commit).
+
+## 9. Tệp tham chiếu
+`C:\AgentControl\studio-state\prompts\`: `PROMPT-WT-E6B2-FIX2.md`, `PROMPT-WT-E6B3-FIX1.md`, `PROMPT-WT-E6B3-FIX2.md` (chưa giao), `PROMPT-WT-E3G.md`, `PROMPT-THIETKE-D11-2B.md`, `PROMPT-REVIEW-E3F.md`, `REVIEW-E3F.md`, `REVIEW-E6B2.md`, `REVIEW-E6B3.md`, `BAOCAO-WT-*.md`; log kiểm `C:\AgentControl\studio-state\verify-main-e3f.log`. Bản bàn giao trước + tài liệu phân tích: xem mục 9 của `2026-11-11-ban-giao-phien-pm-dem-chuoi-tien-e3-e6b-bhyt.md`. Bộ nhớ Agent 0: `feedback-khong-dung-monitor.md` (mới), `feedback-giao-viec-cho-agy.md`, `feedback-quy-luat-chong-loi-lap-lai.md`.
