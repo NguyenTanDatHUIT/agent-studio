@@ -73,7 +73,7 @@ class SilentToolRun(WorkflowBase):
         self.agy.emit_output(FINISHED)
         self.poll()
         self.assertEqual(len(self.agent0.written), 2)
-        self.assertIn('agy-1 đã xong', self.agent0.written[0][0])
+        self.assertIn('agy-1 yên lặng', self.agent0.written[0][0])
 
     def test_a_stale_busy_marker_cannot_silence_a_terminal_forever(self):
         self.agy.emit_output(RUNNING)

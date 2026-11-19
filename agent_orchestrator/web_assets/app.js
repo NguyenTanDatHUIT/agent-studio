@@ -20,20 +20,35 @@
   const number=value=>typeof value==='number'?value.toLocaleString('vi-VN'):'Chưa có';
   const chip=status=>`<span class="ao-chip ${status==='failed'?'bad':['awaiting_review','changes_requested'].includes(status)?'review':['approved','running'].includes(status)?'good':''}"><span class="ao-dot"></span>${esc(labels[status]||status)}</span>`;
   const agentLogos={
+    gemini_web:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 1.5c.6 5.6 4.9 9.9 10.5 10.5-5.6.6-9.9 4.9-10.5 10.5C11.4 16.9 7.1 12.6 1.5 12 7.1 11.4 11.4 7.1 12 1.5z"/></svg>',
     claude:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.3916z"/></svg>',
     agent0:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.3916z"/></svg>',
     codex:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"/></svg>',
     agy:'<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12.24 10.285V14.4h6.806c-.275 1.765-2.056 5.174-6.806 5.174-4.095 0-7.439-3.389-7.439-7.574s3.345-7.574 7.439-7.574c2.33 0 3.891.989 4.785 1.849l3.254-3.138C18.189 1.186 15.479 0 12.24 0c-6.635 0-12 5.365-12 12s5.365 12 12 12c6.926 0 11.52-4.869 11.52-11.726 0-.788-.085-1.39-.189-1.989H12.24z"/></svg>'
   };
   const agentLogo=kind=>agentLogos[kind]||'<i data-lucide="square-terminal"></i>';
+  // Agent 0 luôn mở bằng Claude, nhưng chủ máy có thể thoát và chạy agy/codex ngay trong cửa sổ đó. Đọc màn hình thật để biết CLI nào đang chạy.
+  const CLI_BANNERS=[['agy',/Antigravity CLI/i],['codex',/OpenAI Codex|>_ Codex/i],['claude',/Claude Code vd/i]];
+  const CLI_LABELS={claude:'Claude Code',codex:'Codex CLI',agy:'Antigravity CLI'},CLI_NAMES={claude:'Claude Code',codex:'Codex',agy:'Antigravity'};
+  function liveCli(id){
+    const e=terms.get(id);if(!e||!e.term)return null;
+    const now=Date.now();if(e.cliAt&&now-e.cliAt<2500)return e.cli||null;e.cliAt=now;
+    try{const b=e.term.buffer.active;let best=null,bestLine=-1;
+      for(let i=0;i<b.length;i++){const t=b.getLine(i)?.translateToString(true);if(!t)continue;for(const [k,re] of CLI_BANNERS)if(re.test(t)&&i>=bestLine){best=k;bestLine=i;}}
+      if(best)e.cli=best;}catch(_){}
+    return e.cli||null;}
   function notify(text,error=false,title='Agent Studio'){
     const e=$('[data-toast]');
     if(e){
+      const hide=()=>{e.hidden=true;try{if(e.matches(':popover-open'))e.hidePopover();}catch(_){}};
+      if(!e._toastBound){e._toastBound=true;e.addEventListener('click',()=>{if(e._toastTimer)clearTimeout(e._toastTimer);hide();});}
       e.hidden=false;
       e.textContent=text;
       e.classList.toggle('error',error);
+      // Popover manual = lớp trên cùng của trình duyệt, nên thông báo hiện cả khi một hộp thoại đang mở.
+      try{if(e.showPopover&&!e.matches(':popover-open'))e.showPopover();}catch(_){}
       if(e._toastTimer)clearTimeout(e._toastTimer);
-      e._toastTimer=setTimeout(()=>{e.hidden=true;},6000);
+      e._toastTimer=setTimeout(hide,error?8000:4500);
     }
     if(state.sound!==false&&'Notification' in window&&Notification.permission==='granted'){
       try{
@@ -219,7 +234,7 @@
   bar.querySelector('.ao-console-bar-info').append(inventory.querySelector('.ao-window-range'));
   bar.querySelector('[data-compact-layout-mount]').append(toolbar.querySelector('.ao-layout-group'));
   bar.querySelector('[data-compact-mode-mount]').append(toolbar.querySelector('.ao-console-mode'));
-  const add=inventory.querySelector('[data-console-action="add"]');add.innerHTML='<i data-lucide="plus"></i>CMD';add.setAttribute('aria-label','Thêm cửa sổ theo dõi');bar.querySelector('.ao-console-bar-actions').prepend(add);
+  const add=inventory.querySelector('[data-console-action="add"]');add.innerHTML='<i data-lucide="plus"></i>CMD';add.setAttribute('aria-label','Thêm cửa sổ theo dõi');bar.querySelector('.ao-console-bar-actions').prepend(add);const gbtn=document.createElement('button');gbtn.type='button';gbtn.className='ao-btn cursor-interaction';gbtn.dataset.consoleAction='gemini-bridge';gbtn.setAttribute('aria-label','Cầu nối Gemini Web');gbtn.title='Cầu nối Gemini Web';gbtn.innerHTML='<i data-lucide="plug-zap"></i>Gemini';bar.querySelector('.ao-console-bar-actions').prepend(gbtn);
   const reload=inventory.querySelector('[data-console-action="feed"]');reload.textContent='Làm mới log';bar.querySelector('[data-compact-extra-mount]').append(reload);
   const newChat=inventory.querySelector('[data-console-action="newchat"]');if(newChat)bar.querySelector('.ao-console-bar-actions').prepend(newChat);
   toolbar.replaceWith(bar);inventory.remove();
@@ -271,7 +286,7 @@
     const durations=finished.map(t=>t.result.worker.elapsed_seconds).filter(x=>typeof x==='number').sort((a,b)=>a-b),middle=Math.floor(durations.length/2),median=durations.length?(durations.length%2?durations[middle]:(durations[middle-1]+durations[middle])/2):null;
     $('[data-reports]').innerHTML=`<section class="ao-panel"><div class="ao-panel-head"><h2>Kết quả nhiệm vụ</h2><span class="ao-chip">${tasks.length} gần nhất</span></div><div class="ao-report-body"><div class="ao-report-num">${tasks.filter(t=>t.status==='approved').length}</div><p class="ao-muted">nhiệm vụ đã duyệt</p>${Object.entries(labels).map(([s,l])=>`<div class="ao-usage-row"><span>${l}</span><strong>${tasks.filter(t=>t.status===s).length}</strong></div>`).join('')}</div></section><section class="ao-panel"><div class="ao-panel-head"><h2>Test & thời gian</h2></div><div class="ao-report-body"><div class="ao-usage-row"><span>Task có test đạt</span><strong>${passed.length}/${tasks.length}</strong></div><div class="ao-usage-row"><span>Trung vị thời gian worker</span><strong>${median==null?'Chưa có':median.toFixed(1)+' giây'}</strong></div><div class="ao-notice">Thời gian lấy từ process worker đã kết thúc. Không ước lượng phần trăm tiến độ.</div></div></section><section class="ao-panel ao-wide"><div class="ao-panel-head"><h2>Token & usage do CLI trả về</h2></div><div class="ao-report-body">${rows||'<p class="ao-muted">Chưa có số liệu usage.</p>'}<div class="ao-notice">Thiếu số liệu được hiển thị “Chưa có”. Không suy đoán token hay tổng chi phí.</div></div></section>`;
   }
-  const sessionState=sess=>sess.kind==='worker'?(!sess.alive?'Đã đóng':sess.idle?'Sẵn sàng':'Đang làm'):(sess.alive?'Đang chạy':'Đã kết thúc');
+  const sessionState=sess=>sess.kind==='worker'?(!sess.alive?'Đã đóng':sess.idle?'Sẵn sàng':'Đang làm'):(sess.alive?(sess.idle===true?'Rảnh · chờ lệnh':'Đang chạy'):'Đã kết thúc');
   const runnerText=p=>{const r=state.runners?.providers?.[p];return r?({starting:'Runner đang khởi động',polling:'Runner đang nhận việc',idle:'Runner sẵn sàng',busy:'Runner đang xử lý',stopped:'Runner đã dừng',error:'Runner lỗi'}[r.status]||r.status):(state.config?.providers?.[p]?'Chưa có runner giám sát':'Chưa cấu hình');};
   const liveCount=p=>state.sessions.filter(x=>x.provider===p&&x.kind==='agent'&&x.alive).length;
   function renderFlow(){
@@ -345,7 +360,7 @@
       if(liveAgents.length){
         for(const s of liveAgents){
           const p=s.provider;
-          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity'}[p]||p;
+          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity',gemini_web:'Gemini Web'}[p]||p;
           const agentName=s.title||(`Agent ${s.agent||''} · ${provLabel}`);
           const isBusy=!s.idle;
           const cwdName=s.cwd?s.cwd.split(/[\\/]/).pop():'';
@@ -376,7 +391,7 @@
         for(const p of provs){
           const runner=state.runners.providers[p];
           if(!runner||runner.status==='stopped')continue;
-          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity'}[p]||p;
+          const provLabel={claude:'Claude',codex:'Codex',agy:'Antigravity',gemini_web:'Gemini Web'}[p]||p;
           const runnerText=({starting:'Runner đang khởi động',polling:'Runner đang nhận việc',idle:'Runner sẵn sàng',busy:'Runner đang xử lý',stopped:'Runner đã dừng',error:'Runner lỗi'}[runner.status]||runner.status);
           const agentName=provLabel+' Worker';
           lanes.push({
@@ -614,7 +629,8 @@
     {key:'close_on_success',label:'Đóng cửa sổ khi việc đã nghiệm thu đạt',hint:'Trừ khi còn việc kế tiếp cho chính agent đó.'},
     {key:'prompt_in_file',label:'Prompt giao việc phải ghi thành tệp',hint:'Dòng gõ vào terminal chỉ trỏ tới tệp.'},
     {key:'report_in_file',label:'Báo cáo cuối ghi ra tệp',hint:'Trong terminal chỉ trả đường dẫn và tối đa 3 dòng tóm tắt.'},
-    {key:'roles_enabled',label:'Bật thư viện vai trò & mẫu chuẩn (roles)',hint:'Đồng bộ bộ vai trò chuyên môn và khung mẫu bàn giao ra {ROLES_DIR}, kèm chỉ dẫn cho Agent 0.'}];
+    {key:'roles_enabled',label:'Bật thư viện vai trò & mẫu chuẩn (roles)',hint:'Đồng bộ bộ vai trò chuyên môn và khung mẫu bàn giao ra {ROLES_DIR}, kèm chỉ dẫn cho Agent 0.'},
+    {key:'common_prompt_enforce',label:'Ép dòng giao việc đầu tiên phải trỏ tới tệp prompt chung',hint:'Chỉ có tác dụng khi tệp prompt chung tồn tại. Tắt: Agent 0 không bị chặn khi quên.'}];
   const RULE_TEXTS=[
     {key:'rules',label:'Quy tắc điều phối',hint:'Nội dung chính Agent 0 phải tuân thủ. Biến dùng được: '},
     {key:'constraints',label:'Ràng buộc chung dán vào mọi prompt giao agent code',hint:'Điều cấm/bắt buộc Agent 0 phải chép vào mọi tệp prompt. Thêm ràng buộc riêng của dự án ở đây.'},
@@ -644,7 +660,8 @@
       <p class="ao-sub">Cách Agent 0 giao việc cho các cửa sổ CMD, nghiệm thu, sửa và thay cửa sổ. Lưu xong có hiệu lực cho phiên Agent 0 kế tiếp (mở mới, khởi động lại hoặc mở lại phiên).</p>
       <div class="ao-notice ao-rules-status" data-rules-status><span>${esc(status)}</span>${running&&!applied?'<button type="button" class="ao-btn cursor-interaction" data-rules-restart>Khởi động lại Agent 0 để áp dụng</button>':''}</div>
       <h3>Tham số</h3><div class="ao-rules-grid">${nums}${providers}${models}
-      <label class="ao-rule-field ao-rule-wide"><strong>Thư mục lưu tệp prompt và báo cáo</strong><input type="text" maxlength="260" value="${esc(p.prompts_dir)}" placeholder="Để trống: thư mục riêng của công cụ, nằm ngoài repo" data-rp="prompts_dir"><small>Phải là đường dẫn tuyệt đối nằm ngoài repo (để không bị commit). Agent phải đọc và ghi được thư mục này.</small></label></div>
+      <label class="ao-rule-field ao-rule-wide"><strong>Thư mục lưu tệp prompt và báo cáo</strong><input type="text" maxlength="260" value="${esc(p.prompts_dir)}" placeholder="Để trống: thư mục riêng của công cụ, nằm ngoài repo" data-rp="prompts_dir"><small>Phải là đường dẫn tuyệt đối nằm ngoài repo (để không bị commit). Agent phải đọc và ghi được thư mục này.</small></label>
+      <label class="ao-rule-field ao-rule-wide"><strong>Tệp prompt chung (mọi agent phải đọc trước)</strong><input type="text" maxlength="260" value="${esc(p.common_prompt_file)}" placeholder="Để trống: PROMPT-CHUNG.md trong thư mục prompt (nếu có)" data-rp="common_prompt_file"><small>Phải là đường dẫn tuyệt đối. Dòng giao việc đầu tiên cho mỗi cửa sổ agent mới phải trỏ tới tệp này, nếu không công cụ từ chối.</small></label></div>
       <div class="ao-rules-checks">${bools}</div>
       <h3>Nội dung</h3>${texts}
       <div class="ao-actions ao-rules-actions"><button type="button" class="ao-btn ao-primary cursor-interaction" data-rules-save>Lưu</button><button type="button" class="ao-btn cursor-interaction" data-rules-preview>Xem trước</button><button type="button" class="ao-btn cursor-interaction" data-rules-reset>Khôi phục mặc định</button><button type="button" class="ao-btn cursor-interaction" data-rules-export>Xuất .md</button><button type="button" class="ao-btn cursor-interaction" data-rules-import>Nhập .md</button><input type="file" accept=".md,text/markdown,text/plain" data-rules-file hidden></div>
@@ -715,6 +732,8 @@
     else if('rulesImport' in b.dataset)rulesModal.querySelector('[data-rules-file]').click();
   });
   root.addEventListener('click',e=>{if(e.target.closest('[data-action="open-orch-rules"]'))runAction(openRules);});
+  // Nhấp đúp vào dòng đường dẫn/mã của một cửa sổ CMD để sao chép mã cửa sổ (ví dụ gemini_web-1).
+  root.addEventListener('dblclick',async e=>{const label=e.target.closest('[data-window-path]');if(!label)return;const id=label.closest('[data-window]')?.dataset.window;if(!id)return;getSelection()?.removeAllRanges();try{await navigator.clipboard.writeText(id);notify('Đã sao chép: '+id);}catch(_){notify('Không sao chép được. Mã cửa sổ: '+id,true);}});
   const collapsed=new Set();
   root.addEventListener('click',e=>{const b=e.target.closest('[data-collapse]');if(!b)return;const id=b.dataset.collapse;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);renderWindows();refreshWindows();});
   function renderLive(){
@@ -857,8 +876,32 @@
       term.paste(text);
     };
 
+    // Copy: Clipboard API, nếu bị chặn thì dùng execCommand('copy') qua textarea tạm.
+    e.copyText=async text=>{
+      if(!text)return false;
+      let ok=false,why='';
+      try{await navigator.clipboard.writeText(text);ok=true;}catch(err){why=(err&&err.name)||String(err);}
+      if(!ok){
+        try{
+          const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');
+          ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';
+          document.body.appendChild(ta);ta.select();
+          ok=document.execCommand('copy');ta.remove();
+          try{term.focus();}catch(_){}
+        }catch(err){why=why||String(err);}
+      }
+      const t=$('[data-toast]');
+      if(t){t.hidden=false;t.textContent=ok?'Đã sao chép '+text.length+' ký tự.':'Không sao chép được'+(why?' ('+why+')':'')+'.';t.classList.toggle('error',!ok);if(t._toastTimer)clearTimeout(t._toastTimer);t._toastTimer=setTimeout(()=>{t.hidden=true;},2500);}
+      return ok;
+    };
+    // Nhớ vùng bôi đen gần nhất (TUI như agy vẽ lại màn hình làm mất vùng chọn trước khi kịp Ctrl+C) và tự copy khi nhả chuột.
+    term.onSelectionChange(()=>{if(term.hasSelection())e.lastSel=term.getSelection();});
+    el.addEventListener('mouseup',()=>{setTimeout(()=>{if(term.hasSelection())e.copyText(term.getSelection());},0);});
+
     // Bắt phím tắt Paste / Copy và xử lý bộ gõ tiếng Việt (IME/Unikey) trên terminal
     term.attachCustomKeyEventHandler(ev=>{
+      if(ev.type==='keydown'&&ev.key==='·'&&ev.keyCode===231)e.dotAt=Date.now();
+      if(debugIn&&ev.type!=='keyup')console.log('[term key]',e.id,ev.type,'key='+ev.key,'code='+ev.keyCode,ev.isComposing?'composing':'');
       if((ev.ctrlKey&&(ev.key==='v'||ev.key==='V'))||(ev.shiftKey&&ev.key==='Insert')){
         if(e.readonly){
           ev.preventDefault?.();
@@ -869,10 +912,11 @@
         // và capture listener bên dưới sẽ gọi pasteOnce đúng 1 lần duy nhất.
         return false;
       }
-      if(ev.ctrlKey&&(ev.key==='c'||ev.key==='C')&&term.hasSelection()){
+      if(ev.ctrlKey&&(ev.key==='c'||ev.key==='C')&&(term.hasSelection()||(ev.shiftKey&&e.lastSel))){
         if(ev.type==='keydown'){
-          navigator.clipboard.writeText(term.getSelection()).catch(()=>{});
+          e.copyText(term.hasSelection()?term.getSelection():e.lastSel);
         }
+        ev.preventDefault?.();
         return false;
       }
       return true;
@@ -882,10 +926,14 @@
     // xterm.js giữ chuỗi đã gõ trước đó trong textarea.value sau khi kết thúc composition (_finalizeComposition),
     // khiến lần gõ dấu tiếp theo (keyCode 229) so sánh độ dài sai và tự phát DEL (\x7f) làm mất chữ hoặc lặp chữ.
     // Xóa sạch textarea.value ngay sau mỗi nhịp compositionend giúp từng ký tự tiếng Việt độc lập.
+    // Xóa TRỄ và chỉ khi không còn soạn thảo: xterm đọc textarea.value ở setTimeout(0) sau compositionend, nên xóa ngay (capture-phase
+    // chạy trước xterm) làm mất toàn bộ chữ vừa chốt (đã đo bằng Chromium: bộ gõ kiểu soạn thảo ra [] thay vì "Chào").
+    el.addEventListener('compositionstart',()=>{e.composing=true;clearTimeout(e.imeTimer);},true);
     el.addEventListener('compositionend',()=>{
-      setTimeout(()=>{
-        if(term.textarea&&!e.readonly){term.textarea.value='';}
-      },0);
+      e.composing=false;clearTimeout(e.imeTimer);
+      e.imeTimer=setTimeout(()=>{
+        if(term.textarea&&!e.readonly&&!e.composing){term.textarea.value='';}
+      },60);
     },true);
 
     // Sự kiện Paste: capture-phase để chặn xterm internal handler (handlePasteEvent) khỏi gửi trùng vào ConPTY.
@@ -899,6 +947,9 @@
       e.pasteOnce(text);
     },true);
 
+    // Claude bật chế độ chuột (?1000/1002/1003/1006) nên báo cáo nút phải do xterm gửi đi bị Claude coi là dán, cộng với lần dán của ta
+    // thành hai lần (agy không bật chế độ chuột nên không bị). Nút phải chỉ dành cho copy/dán của dashboard, không chuyển cho ứng dụng.
+    for(const type of ['mousedown','mouseup','pointerdown','pointerup','auxclick'])el.addEventListener(type,ev=>{if(ev.button===2){ev.stopPropagation();ev.stopImmediatePropagation();}},true);
     // Chuột phải: capture-phase chặn xterm rightClickHandler (di chuyển textarea dưới chuột gây paste thêm).
     // Bôi đen thì copy, không bôi đen thì paste.
     el.addEventListener('contextmenu',async ev=>{
@@ -907,7 +958,7 @@
       ev.stopImmediatePropagation();
       if(e.pasteReading)return;
       if(term.hasSelection()){
-        try{await navigator.clipboard.writeText(term.getSelection());}catch(_){}
+        await e.copyText(term.getSelection());
         term.clearSelection();
       }else if(!e.readonly){
         e.pasteReading=true;
@@ -932,6 +983,7 @@
     // Loại bỏ chuỗi báo focus (\x1b[I / \x1b[O) do trình duyệt tự phát khi cửa sổ IME / chuột đổi focus.
     // Bật log byte thô: localStorage.setItem('ao-term-debug','1') rồi tải lại trang.
     let debugIn=false;try{debugIn=localStorage.getItem('ao-term-debug')==='1';}catch(_){}
+    if(debugIn&&term.textarea){for(const t of ['beforeinput','input','compositionstart','compositionupdate','compositionend'])term.textarea.addEventListener(t,ev=>console.log('[term ev]',e.id,t,ev.inputType||'','data='+JSON.stringify(ev.data??''),'len='+term.textarea.value.length),true);}
     const sendInput=chunk=>{
       const data=String(chunk||'').replace(/\x1b\[[IO]/g,'');
       if(!data)return;
@@ -942,6 +994,12 @@
 
     term.onData(d=>{
       if(e.readonly)return;
+      // Unikey chèn ký tự giả "·" (keyCode 231) rồi gửi thừa ĐÚNG MỘT Backspace để xóa nó. Agy không hiển thị "·" nên Backspace thừa
+      // xóa nhầm chữ thật ("Chào" thành "Cào", "nhiều" thành "nều"). Nuốt "·" và một Backspace đi kèm; hết hạn nhanh để không nuốt nhầm phím thật.
+      {const now=Date.now();
+        if(d==='·'&&e.dotAt&&now-e.dotAt<150){e.dummy=(e.dummy||0)+1;e.dummyAt=now;e.dotAt=0;return;}
+        if(e.dummy&&now-e.dummyAt>800)e.dummy=0;
+        if(d===''&&e.dummy>0){e.dummy--;return;}}
       // Lệnh gạch chéo (/clear, /model...) do CLI tự xử lý: không coi là giao việc nên không báo "đã xong".
       let submitsWork=false;
       for(const ch of d.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g,'')){
@@ -1068,13 +1126,13 @@
     buildWindows();const size=layouts[state.layout][0]*layouts[state.layout][1],count=Math.max(1,Math.ceil(state.windows.length/size));state.windowPage=Math.min(count,state.windowPage);
     $$('[data-console-layout]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.consoleLayout===state.layout)));{const box=$('[data-console-layout-input]');if(box&&document.activeElement!==box){box.value=state.layout.replace('x',' x ');box.removeAttribute('aria-invalid');}}$$('[data-console-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.consoleMode===state.mode)));
     $('[data-console-grid]').style.setProperty('--console-cols',state.focus?1:layouts[state.layout][1]);$('[data-console-grid]').style.setProperty('--console-rows',state.focus?1:(state.mode==='all'?Math.max(1,Math.ceil(state.windows.length/layouts[state.layout][1])):layouts[state.layout][0]));root.style.setProperty('--console-rows',state.focus?1:layouts[state.layout][0]);
-    $('[data-console-grid]').innerHTML=visibleWindows().map(w=>`<article class="ao-terminal${collapsed.has(w.id)?' is-collapsed':''}" data-window="${esc(w.id)}"><header class="ao-terminal-head"><div class="ao-terminal-title-row"><button type="button" class="ao-terminal-drag" draggable="true" data-drag="${esc(w.id)}" aria-label="Di chuyển ${esc(w.name)} bằng Alt và phím mũi tên">⠿</button><span class="ao-terminal-role ${w.kind}">${agentLogo(w.kind)}</span><span class="ao-terminal-name" title="${esc(w.session?w.session.cwd:w.name)}">${esc(w.name)}</span><span class="ao-terminal-meta"><code data-window-path>Queue local</code><span data-window-status></span></span><div class="ao-winctl" role="group" aria-label="Điều khiển cửa sổ ${esc(w.name)}"><button type="button" class="ao-winbtn cursor-interaction" data-settings="${esc(w.id)}" aria-label="Cài đặt ${esc(w.name)}" title="Cài đặt"><i data-lucide="settings"></i></button><button type="button" class="ao-winbtn cursor-interaction" data-collapse="${esc(w.id)}" aria-pressed="${collapsed.has(w.id)}" aria-label="${collapsed.has(w.id)?'Mở rộng':'Thu gọn'} ${esc(w.name)}" title="${collapsed.has(w.id)?'Mở rộng':'Thu gọn'}"><i data-lucide="minus"></i></button><button type="button" class="ao-winbtn cursor-interaction" data-focus="${esc(w.id)}" aria-label="${state.focus?'Khôi phục':'Phóng to'} ${esc(w.name)}" title="${state.focus?'Khôi phục':'Phóng to'}"><i data-lucide="${state.focus?'copy':'square'}"></i></button><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-term-toggle="${esc(w.id)}" aria-label="${w.session?(w.session.kind==='worker'?'Đóng cửa sổ theo dõi':'Đóng terminal'):'Mở Agent 0'} ${esc(w.name)}" title="${w.session?(w.session.kind==='worker'?'Đóng cửa sổ theo dõi':'Đóng terminal'):'Mở Agent 0'}"><i data-lucide="${w.session?'x':'play'}"></i></button></div></div></header><pre class="ao-terminal-output" data-window-output role="log" aria-label="Log ${esc(w.name)}"></pre><div class="ao-term-host" data-term-host hidden></div><div class="ao-terminal-history"><button data-history="${esc(w.id)}">Xem log mở rộng</button><span>LOCAL · ${w.taskId?'TASK':'MONITOR'}</span></div></article>`).join('');
+    $('[data-console-grid]').innerHTML=visibleWindows().map(w=>`<article class="ao-terminal${collapsed.has(w.id)?' is-collapsed':''}" data-window="${esc(w.id)}"><header class="ao-terminal-head"><div class="ao-terminal-title-row"><button type="button" class="ao-terminal-drag" draggable="true" data-drag="${esc(w.id)}" aria-label="Di chuyển ${esc(w.name)} bằng Alt và phím mũi tên">⠿</button><span class="ao-terminal-role ${w.kind}">${agentLogo(w.kind)}</span><span class="ao-terminal-name" title="${esc(w.session?w.session.cwd:w.name)}">${esc(w.name)}</span><span class="ao-terminal-meta"><code data-window-path>Queue local</code><span data-window-status></span></span><div class="ao-winctl" role="group" aria-label="Điều khiển cửa sổ ${esc(w.name)}">${w.session&&w.session.kind==='agent'?`<button type="button" class="ao-winbtn cursor-interaction" data-notify-done="${esc(w.id)}" aria-label="Báo Agent 0: ${esc(w.name)} đã hoàn thành" title="Báo Agent 0 đã hoàn thành"><i data-lucide="bell-ring"></i></button>`:''}<button type="button" class="ao-winbtn cursor-interaction" data-settings="${esc(w.id)}" aria-label="Cài đặt ${esc(w.name)}" title="Cài đặt"><i data-lucide="settings"></i></button><button type="button" class="ao-winbtn cursor-interaction" data-collapse="${esc(w.id)}" aria-pressed="${collapsed.has(w.id)}" aria-label="${collapsed.has(w.id)?'Mở rộng':'Thu gọn'} ${esc(w.name)}" title="${collapsed.has(w.id)?'Mở rộng':'Thu gọn'}"><i data-lucide="minus"></i></button><button type="button" class="ao-winbtn cursor-interaction" data-focus="${esc(w.id)}" aria-label="${state.focus?'Khôi phục':'Phóng to'} ${esc(w.name)}" title="${state.focus?'Khôi phục':'Phóng to'}"><i data-lucide="${state.focus?'copy':'square'}"></i></button><button type="button" class="ao-winbtn ao-winbtn-close cursor-interaction" data-term-toggle="${esc(w.id)}" aria-label="${w.session?(w.session.kind==='worker'?'Đóng cửa sổ theo dõi':'Đóng terminal'):'Mở Agent 0'} ${esc(w.name)}" title="${w.session?(w.session.kind==='worker'?'Đóng cửa sổ theo dõi':'Đóng terminal'):'Mở Agent 0'}"><i data-lucide="${w.session?'x':'play'}"></i></button></div></div></header><pre class="ao-terminal-output" data-window-output role="log" aria-label="Log ${esc(w.name)}"></pre><div class="ao-term-host" data-term-host hidden></div><div class="ao-terminal-history"><button data-history="${esc(w.id)}">Xem log mở rộng</button><span>LOCAL · ${w.taskId?'TASK':'MONITOR'}</span></div></article>`).join('');
     $('[data-console-count]').textContent=state.windows.length+' cửa sổ';$('[data-console-active]').textContent=state.tasks.filter(t=>t.status==='running').length+' task đang chạy';$('[data-console-range]').textContent=state.focus?'Đang phóng to một cửa sổ':state.mode==='all'?'Tất cả cửa sổ':`Trang ${state.windowPage}/${count} · ${size} cửa sổ/trang`;
     $('[data-console-focusbar]').hidden=!state.focus;$('[data-console-focusname]').textContent='Đang phóng to · '+(state.windows.find(w=>w.id===state.focus)?.name||'');
     const pager=$('[data-console-pager]');pager.hidden=!!state.focus||state.mode==='all';pager.innerHTML=Array.from({length:count},(_,i)=>`<button data-window-page="${i+1}" aria-current="${state.windowPage===i+1?'page':'false'}">${i+1}</button>`).join('');
     for(const w of visibleWindows()){updateWindow(w,state.outputs.get(w.id)||'Chưa có log.');if(terms.has(w.id))placeTerm(w);}icons();save();
   }
-  function updateWindow(w,text){const card=$(`[data-window="${w.id}"]`);if(!card)return;const task=windowTask(w);const sess=w.session;card.querySelector('[data-window-path]').textContent=w.id==='agent0'?'Claude Code · MCP':sess?sess.id+' · '+(sess.kind==='worker'?(sess.remember===false?'không nhớ ngữ cảnh':'nhớ ngữ cảnh'):({claude:'Claude Code',codex:'Codex CLI',agy:'Antigravity CLI'}[sess.provider]||sess.provider)):'';const statusEl=card.querySelector('[data-window-status]');const statusLabel=w.id==='agent0'?(state.agent0.connected?'Đã kết nối':'Chưa kết nối'):sess?sessionState(sess):'';const isRunning=w.id==='agent0'?Boolean(state.agent0.connected||sess?.alive):Boolean(sess&&sess.alive);const wantCls='st-radar '+(isRunning?'running':'stopped');if(statusEl.className!==wantCls)statusEl.className=wantCls;if(statusEl.textContent!=='')statusEl.textContent='';const ariaVal=statusLabel||(isRunning?'Đang chạy':'Đã dừng');if(statusEl.getAttribute('aria-label')!==ariaVal)statusEl.setAttribute('aria-label',ariaVal);if(statusEl.title!==ariaVal)statusEl.title=ariaVal;const output=card.querySelector('[data-window-output]');if(output.textContent!==text){const atBottom=output.scrollTop+output.clientHeight>=output.scrollHeight-30;output.textContent=text;if(atBottom)output.scrollTop=output.scrollHeight;}}
+  function updateWindow(w,text){const card=$(`[data-window="${w.id}"]`);if(!card)return;const task=windowTask(w);const sess=w.session;const live=w.id==='agent0'?liveCli('agent0'):null;if(w.id==='agent0'){const role=card.querySelector('.ao-terminal-role'),nm=card.querySelector('.ao-terminal-name'),k=live||'agent0';if(role&&role.dataset.cli!==k){role.dataset.cli=k;role.className='ao-terminal-role '+(live||'agent0');role.innerHTML=agentLogo(live||'agent0');}const want='Agent 0 · '+(CLI_NAMES[live]||'Claude Code');if(nm&&nm.textContent!==want)nm.textContent=want;}card.querySelector('[data-window-path]').textContent=w.id==='agent0'?(CLI_LABELS[live]||'Claude Code')+' · MCP':sess?sess.id+' · '+(sess.kind==='worker'?(sess.remember===false?'không nhớ ngữ cảnh':'nhớ ngữ cảnh'):({claude:'Claude Code',codex:'Codex CLI',agy:'Antigravity CLI',gemini_web:'Gemini Web (trình duyệt)'}[sess.provider]||sess.provider)):'';const statusEl=card.querySelector('[data-window-status]');const statusLabel=w.id==='agent0'?(state.agent0.connected?'Đã kết nối':'Chưa kết nối'):sess?sessionState(sess):'';const isRunning=w.id==='agent0'?Boolean(state.agent0.connected||sess?.alive):Boolean(sess&&sess.alive);const isIdle=isRunning&&Boolean(sess&&sess.alive&&sess.idle===true);const wantCls='st-radar '+(isIdle?'idle':isRunning?'running':'stopped');if(statusEl.className!==wantCls)statusEl.className=wantCls;if(statusEl.textContent!=='')statusEl.textContent='';const ariaVal=isIdle?'Rảnh · chờ lệnh':(statusLabel||(isRunning?'Đang chạy':'Đã dừng'));if(statusEl.getAttribute('aria-label')!==ariaVal)statusEl.setAttribute('aria-label',ariaVal);if(statusEl.title!==ariaVal)statusEl.title=ariaVal;const output=card.querySelector('[data-window-output]');if(output.textContent!==text){const atBottom=output.scrollTop+output.clientHeight>=output.scrollHeight-30;output.textContent=text;if(atBottom)output.scrollTop=output.scrollHeight;}}
   async function refreshWindows(){await Promise.all(visibleWindows().map(async w=>{let text;try{
     if(w.id==='agent0'){const a=state.agent0,seen=a.idle_seconds==null?'':a.idle_seconds<60?a.idle_seconds+' giây trước':Math.round(a.idle_seconds/60)+' phút trước';
       const head=a.connected?'● ĐÃ KẾT NỐI · '+(a.client||'Claude Code')+'\nHoạt động MCP gần nhất: '+(a.last_tool||'(chưa gọi tool)')+(seen?' · '+seen:'')+'\n\nGõ yêu cầu trực tiếp trong cửa sổ terminal "Agent 0" (Claude Code).':'○ CHƯA KẾT NỐI\nChưa thấy phiên Claude Code nào gắn MCP orchestrator.\nMở lại bằng lối tắt Agent Studio, hoặc chạy Start-Agent0.cmd CONFIG.';
@@ -1106,6 +1164,14 @@
   function openForm(provider,prompt='',scope='src, tests',agent=null,role=''){state.formAgent=agent||null;form.elements.provider.disabled=!!agent;form.querySelector('.ao-actions .ao-muted').textContent=agent?`Giao việc tiếp cho ${provider} ${agent}: theo cài đặt nhớ ngữ cảnh của agent.`:'Worker nhận việc khi runner đang hoạt động.';navigate('tasks');form.hidden=false;form.elements.prompt.value=prompt;form.elements.scope.value=scope;if(form.elements.role)form.elements.role.value=role||'';if(provider&&state.config?.providers[provider])form.elements.provider.value=provider;form.elements.prompt.focus();}
   form.addEventListener('submit',event=>{event.preventDefault();runAction(async()=>{if(!form.reportValidity())return;const data=new FormData(form),tests=data.getAll('tests'),role=String(data.get('role')||'').trim();if(!tests.length)throw Error('Chọn ít nhất một test profile.');const result=await api('/tasks',{...(state.formAgent?{agent:state.formAgent}:{provider:data.get('provider')}),...(role?{role}:{}),prompt:String(data.get('prompt')).trim(),allow_paths:String(data.get('scope')).split(/[,\n]/).map(x=>x.trim()).filter(Boolean),tests});form.hidden=true;form.elements.prompt.value='';if(form.elements.role)form.elements.role.value='';state.formAgent=null;form.elements.provider.disabled=false;notify(result.round>1?`${result.provider} ${result.agent} làm tiếp task ${short(result.id)} (vòng ${result.round}).`:`Đã thêm task ${short(result.id)} (${result.provider} ${result.agent}) vào hàng đợi.`);await refreshData();await selectTask(result.id);});});
   const modal=document.createElement('dialog');modal.className='ao-window-dialog';modal.innerHTML='<form method="dialog"><h2>Thêm terminal agent</h2><label>Agent<select data-add-agent required></select></label><label data-add-repo-wrap hidden>Repo (mã nguồn)<select data-add-repo></select></label><p>Mở một phiên tương tác thật. Agent 0 theo dõi được (chỉ đọc) qua list_terminals / read_terminal.</p><div class="ao-actions"><button value="cancel">Đóng</button><button value="add">Mở terminal</button></div></form>';root.append(modal);
+  // Gemini Web bridge: pairing string for the browser extension and the provider switch. The key is only shown to the dashboard owner.
+  const bridgeModal=document.createElement('dialog');bridgeModal.className='ao-window-dialog ao-bridge-dialog';
+  bridgeModal.innerHTML='<form method="dialog"><h2>Cầu nối Gemini Web</h2><p class="ao-bridge-state"><span class="st-radar stopped" data-bridge-radar></span><span data-bridge-state>Đang kiểm tra...</span></p><label>Chuỗi ghép đôi (dán vào tiện ích trình duyệt)<span class="ao-bridge-pair-row"><input type="text" readonly data-bridge-pair aria-label="Chuỗi ghép đôi"><button type="button" class="ao-btn cursor-interaction" data-bridge-copy>Sao chép</button></span></label><label class="ao-setting"><input type="checkbox" data-bridge-enabled><span><strong>Bật provider Gemini Web</strong><small>Chỉ có hiệu lực đến khi tắt Agent Studio. Muốn bật cố định, đặt providers.gemini_web.enabled=true trong owner.json.</small></span></label><p>Cách dùng: nạp thư mục browser_extension vào Chrome/Edge (Chế độ nhà phát triển, Tải tiện ích đã giải nén), mở gemini.google.com đã đăng nhập, bấm biểu tượng tiện ích, dán chuỗi ghép đôi rồi Lưu &amp; Kết nối.</p><div class="ao-actions"><button value="cancel">Đóng</button></div></form>';
+  root.append(bridgeModal);
+  const bridgePaint=st=>{const radar=bridgeModal.querySelector('[data-bridge-radar]');radar.className='st-radar '+(st.connected?'running':'stopped');bridgeModal.querySelector('[data-bridge-state]').textContent=(st.enabled?'Đã bật':'Đang tắt')+' · '+(st.connected?'Tiện ích đã kết nối ('+st.active_tabs+' tab Gemini)':'Chưa có tiện ích kết nối');bridgeModal.querySelector('[data-bridge-enabled]').checked=Boolean(st.enabled);if(st.pair)bridgeModal.querySelector('[data-bridge-pair]').value=st.pair;};
+  async function openBridge(){bridgePaint(await api('/gemini-bridge/status'));bridgeModal.showModal();}
+  bridgeModal.querySelector('[data-bridge-enabled]').addEventListener('change',e=>{const want=e.target.checked;runAction(async()=>{bridgePaint(await api('/gemini-bridge/toggle',{enabled:want}));state.config=await api('/config');});});
+  bridgeModal.querySelector('[data-bridge-copy]').addEventListener('click',async()=>{const input=bridgeModal.querySelector('[data-bridge-pair]');try{await navigator.clipboard.writeText(input.value);notify('Đã sao chép chuỗi ghép đôi.');}catch(_){input.select();notify('Hãy nhấn Ctrl+C để sao chép.',true);}});
   modal.addEventListener('close',()=>{if(modal.returnValue!=='add')return;const provider=modal.querySelector('[data-add-agent]').value,repo=modal.querySelector('[data-add-repo]').value;if(state.sessions.length>=12){notify('Tối đa 12 terminal.',true);return;}runAction(async()=>{const info=await api('/terminals/open',{kind:'agent',provider,...(repo&&repo!=='default'?{repo}:{}),cols:100,rows:30});state.focus=null;await syncTerms();const idx=state.windows.findIndex(w=>w.id===info.id);if(idx>=0)state.windowPage=Math.floor(idx/(layouts[state.layout][0]*layouts[state.layout][1]))+1;renderWindows();});});
 
   const repoModal=document.createElement('dialog');
@@ -1153,7 +1219,7 @@
   }
 
   const historyView=$('[data-view="history"]');
-  historyView.innerHTML=`<div class="ao-panel ao-history-page"><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button><button type="button" class="ao-btn cursor-interaction" data-history-clear title="Xóa toàn bộ lịch sử không đang mở">Xóa tất cả</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div></div>`;
+  historyView.innerHTML=`<div class="ao-panel ao-history-page"><div class="ao-history-toolbar"><input type="search" class="ao-history-search" data-history-search placeholder="Tìm theo tiêu đề, task hoặc ID..." aria-label="Tìm kiếm lịch sử"><select class="ao-history-select" data-history-provider aria-label="Lọc theo provider"><option value="">Tất cả agent</option><option value="agent0">Agent 0</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="agy">Antigravity (agy)</option><option value="gemini_web">Gemini Web (trình duyệt)</option></select><button type="button" class="ao-btn cursor-interaction" data-history-refresh><i data-lucide="rotate-cw"></i>Làm mới</button><button type="button" class="ao-btn cursor-interaction" data-history-clear title="Xóa toàn bộ lịch sử không đang mở">Xóa tất cả</button></div><div class="ao-history-list" data-history-list role="feed" aria-label="Danh sách phiên làm việc"></div></div>`;
 
   const transcriptModal=document.createElement('dialog');
   transcriptModal.className='ao-window-dialog ao-transcript-dialog';
@@ -1173,7 +1239,7 @@
   }
   function convAgentBadge(c){
     if(c.kind==='agent0'||c.provider==='agent0')return 'Agent 0';
-    const p=c.provider||'agent',names={claude:'Claude',codex:'Codex',agy:'Antigravity'},pName=names[p]||p;
+    const p=c.provider||'agent',names={claude:'Claude',codex:'Codex',agy:'Antigravity',gemini_web:'Gemini Web'},pName=names[p]||p;
     const n=c.agent_n??c.agent_number;return n?`${pName} ${n}`:pName;
   }
   const convStatusLabels={active:'Đang mở',closed:'Đã đóng',exited:'Đã đóng',failed:'Lỗi',awaiting_review:'Chờ review'};
@@ -1456,6 +1522,7 @@
       }
       return;
     }
+    const notifyDone=target.closest('[data-notify-done]');if(notifyDone){const id=notifyDone.dataset.notifyDone;runAction(async()=>{await api('/terminals/'+encodeURIComponent(id)+'/notify-done',{});notify('Đã báo Agent 0: '+id+' hoàn thành.');});return;}
     const toggle=target.closest('[data-term-toggle]');if(toggle){const w=state.windows.find(x=>x.id===toggle.dataset.termToggle);if(w)runAction(()=>toggleTerm(w));return;}
     const task=target.closest('[data-task]');if(task){runAction(()=>selectTask(task.dataset.task));return;}
     const action=target.closest('[data-action]')?.dataset.action;if(action==='new-task')openForm();if(action==='close-form')form.hidden=true;if(action==='open-repo-dialog')openRepoDialog();
@@ -1490,11 +1557,12 @@
     if(consoleAction==='unfocus'){state.focus=null;renderWindows();refreshWindows();}
     if(consoleAction==='feed')runAction(refreshData);
     if(consoleAction==='newchat'){runAction(openChatModal);return;}
+    if(consoleAction==='gemini-bridge'){runAction(openBridge);return;}
     const convResume=target.closest('[data-conv-resume]');
     if(convResume){resumeConversation(convResume.dataset.convResume);return;}
     const convView=target.closest('[data-conv-view]');
     if(convView){openTranscript(convView.dataset.convView);return;}
-    if(consoleAction==='add'){closeSettings();const names={claude:'Claude',codex:'Codex',agy:'Antigravity (agy)'},agents=state.config?.terminal_agents||[];if(!agents.length){notify('Chưa cấu hình agent nào trong config.',true);return;}modal.querySelector('[data-add-agent]').innerHTML=agents.map(a=>`<option value="${a}">${names[a]||a}</option>`).join('');const repos=state.config?.repos||['default'];modal.querySelector('[data-add-repo]').innerHTML=repos.map(r=>`<option value="${esc(r)}">${r==='default'?'Repo chính':esc(r)}</option>`).join('');modal.querySelector('[data-add-repo-wrap]').hidden=repos.length<2;modal.showModal();}
+    if(consoleAction==='add'){closeSettings();const names={claude:'Claude',codex:'Codex',agy:'Antigravity (agy)',gemini_web:'Gemini Web (trình duyệt)'},agents=state.config?.terminal_agents||[];if(!agents.length){notify('Chưa cấu hình agent nào trong config.',true);return;}modal.querySelector('[data-add-agent]').innerHTML=agents.map(a=>`<option value="${a}">${names[a]||a}</option>`).join('');const repos=state.config?.repos||['default'];modal.querySelector('[data-add-repo]').innerHTML=repos.map(r=>`<option value="${esc(r)}">${r==='default'?'Repo chính':esc(r)}</option>`).join('');modal.querySelector('[data-add-repo-wrap]').hidden=repos.length<2;modal.showModal();}
     if(target.closest('[data-console-settings-toggle]')){const panel=$('.ao-console-settings-panel');panel.hidden=!panel.hidden;$('[data-console-settings-toggle]').setAttribute('aria-expanded',String(!panel.hidden));}
     if(target.closest('[data-console-settings-close]'))closeSettings(true);
   });

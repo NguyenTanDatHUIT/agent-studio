@@ -89,4 +89,4 @@ class AgySignalsAndRearm(WorkflowBase):
         with mock.patch.object(self.t, 'update_interactive_idle', boom):
             self.poll()
         self.assertEqual(len(self.agent0.written), 2)
-        self.assertIn('agy-2 đã xong', self.agent0.written[0][0])
+        self.assertIn('agy-2 yên lặng', self.agent0.written[0][0])

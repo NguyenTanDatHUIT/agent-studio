@@ -1,0 +1,338 @@
+<!DOCTYPE html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCP Tester — Agent Studio</title>
+<style>
+  #ao-studio{--ao-bg:light-dark(#f5f7f9,#12171e);--ao-panel:light-dark(#ffffff,#1a222d);--ao-text:light-dark(#182b36,#e6edf3);--ao-muted:light-dark(#647581,#a0b0bf);--ao-line:light-dark(#e4eaf0,#303d4b);--ao-soft:light-dark(#edf2f5,#26323f);--ao-accent:light-dark(#087e80,#62d8cf);--ao-tint:light-dark(#e7f5f2,#193b3b);--ao-orange:light-dark(#946010,#f4c475);--ao-warn:light-dark(#fff4de,#3c3122);--ao-red:light-dark(#bc414b,#ff959c);--ao-redbg:light-dark(#fff0f1,#43272e);--ao-purple:light-dark(#7458a3,#c5acf1);--ao-purplebg:light-dark(#f2edfa,#332d46);color-scheme:light dark;color:var(--ao-text);font:12px/1.5 'Segoe UI',Arial,sans-serif;background:var(--ao-bg);border:0;border-radius:0;min-height:100vh;overflow-x:clip;overflow-y:visible;text-align:left}
+  #ao-studio *{box-sizing:border-box}
+  #ao-studio h1,#ao-studio h2,#ao-studio h3,#ao-studio p{margin:0}
+  #ao-studio h1{font-size:25px;line-height:1.25;font-weight:600;letter-spacing:-.7px}
+  #ao-studio h2{font-size:15px;font-weight:600}
+  #ao-studio button,#ao-studio input,#ao-studio select,#ao-studio textarea{font:inherit}
+  #ao-studio button:disabled{cursor:default;opacity:.5}
+  #ao-studio button:focus-visible,#ao-studio input:focus-visible,#ao-studio textarea:focus-visible{outline:2px solid var(--ao-accent);outline-offset:3px}
+  #ao-studio [hidden]{display:none!important}
+
+  /* Shell */
+  .ao-shell{display:grid;grid-template-columns:168px minmax(0,1fr);min-height:100vh}
+  .ao-side{background:var(--ao-panel);border-right:1px solid var(--ao-line);padding:24px 12px;display:flex;flex-direction:column;gap:24px;min-height:100vh}
+  .ao-brand{display:flex;gap:9px;align-items:center;padding:0 7px;font-size:15px;line-height:1.25;font-weight:600;letter-spacing:-.3px}
+  .ao-brandmark{width:32px;height:34px;border-radius:10px;background:var(--ao-accent);color:var(--ao-panel);display:grid;place-items:center;font-size:17px}
+  .ao-brand small{display:block;font-size:12px;color:var(--ao-muted);font-weight:400;margin-top:4px;letter-spacing:.2px}
+  .ao-section-label{font-size:12px;font-weight:600;letter-spacing:1.1px;color:var(--ao-muted);padding:0 10px;margin-bottom:10px}
+  .ao-nav{display:grid;gap:5px}
+  .ao-nav button{border:0;background:transparent;color:var(--ao-muted);display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:8px;text-align:left;font-size:12px;font-weight:500;width:100%;cursor:pointer}
+  .ao-nav button[aria-current="page"]{background:var(--ao-tint);color:var(--ao-accent)}
+  .ao-nav button:hover:not([aria-current="page"]){background:var(--ao-soft)}
+  .ao-side-bottom{margin-top:auto;display:grid;gap:14px}
+  .ao-safe{border-radius:9px;background:var(--ao-tint);padding:12px;font-size:12px;color:var(--ao-accent)}
+  .ao-safe strong{display:flex;gap:7px;align-items:center;margin-bottom:4px;font-weight:600}
+
+  /* Top bar */
+  .ao-top{background:var(--ao-panel);padding:16px 24px;border-bottom:1px solid var(--ao-line);display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:65px}
+  .ao-crumb{font-size:12px;color:var(--ao-muted);display:flex;align-items:center;gap:9px}
+  .ao-crumb strong{color:var(--ao-text);font-weight:500}
+  .ao-chip{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:3px 7px;background:var(--ao-soft);color:var(--ao-muted);font-size:12px;font-weight:500}
+  .ao-chip.good{background:var(--ao-tint);color:var(--ao-accent)}
+  .ao-chip.bad{background:var(--ao-redbg);color:var(--ao-red)}
+  .ao-chip.warn{background:var(--ao-warn);color:var(--ao-orange)}
+  .ao-dot{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block}
+
+  /* Main */
+  .ao-main{padding:25px 24px 22px;min-width:0}
+  .ao-heading{display:flex;gap:15px;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap}
+  .ao-kicker{font-size:12px;letter-spacing:1.2px;color:var(--ao-accent);font-weight:600;margin-bottom:7px}
+  .ao-sub{font-size:12px;color:var(--ao-muted);margin-top:7px}
+
+  /* Buttons */
+  .ao-btn{padding:8px 12px;border:1px solid var(--ao-line);border-radius:7px;color:var(--ao-text);background:var(--ao-panel);font-size:12px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;white-space:nowrap;cursor:pointer}
+  .ao-btn:hover{background:var(--ao-soft)}
+  .ao-btn-primary{background:var(--ao-accent);color:var(--ao-panel);border-color:transparent}
+  .ao-btn-primary:hover{opacity:.88}
+  .ao-btn-danger{background:var(--ao-redbg);color:var(--ao-red);border-color:transparent}
+
+  /* Panel */
+  .ao-panel{background:var(--ao-panel);border:1px solid var(--ao-line);border-radius:11px;overflow:hidden;min-width:0}
+  .ao-panel-head{padding:15px 17px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--ao-line)}
+  .ao-panel-head p{font-size:12px;color:var(--ao-muted);margin-top:3px}
+  .ao-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  /* Layout */
+  .mcp-grid{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+  .ao-field{display:grid;gap:5px;font-size:12px;color:var(--ao-muted)}
+  .ao-field + .ao-field{margin-top:12px}
+  .ao-field input,.ao-field textarea,.ao-field select{width:100%;background:var(--ao-bg);border:1px solid var(--ao-line);border-radius:7px;color:var(--ao-text);font:inherit;padding:7px 10px;outline:none;transition:border-color .15s}
+  .ao-field input:focus,.ao-field textarea:focus{border-color:var(--ao-accent)}
+  .ao-field textarea{resize:vertical;min-height:90px;font-family:Consolas,'Courier New',monospace;font-size:12px}
+
+  .ao-inrow{display:flex;gap:6px}
+  .ao-inrow input{flex:1}
+
+  /* Tool chips */
+  .tool-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .tool-pick{border:1px solid var(--ao-line);border-radius:6px;background:var(--ao-bg);color:var(--ao-muted);padding:5px 9px;font-size:12px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .tool-pick:hover{border-color:var(--ao-accent);color:var(--ao-accent)}
+  .tool-pick.active{background:var(--ao-tint);border-color:var(--ao-accent);color:var(--ao-accent)}
+
+  /* Console / output */
+  .ao-console{--cmd-bg:light-dark(#17232d,#101820);--cmd-text:light-dark(#d4e4ef,#d4e4ef);--cmd-muted:light-dark(#94aaba,#9bb0c1);--cmd-green:light-dark(#5ec894,#8fdfbd);--cmd-yellow:light-dark(#c9962a,#f3d28e);--cmd-red:light-dark(#e05555,#ffb0b8);--cmd-line:light-dark(#334450,#2c3a46)}
+  .ao-terminal{border:1px solid var(--ao-line);border-radius:10px;overflow:hidden;background:var(--cmd-bg);display:flex;flex-direction:column;min-height:320px}
+  .ao-terminal-head{background:var(--ao-panel);padding:10px 14px 8px;border-bottom:1px solid var(--ao-line)}
+  .ao-terminal-title-row{display:flex;gap:8px;align-items:center}
+  .ao-terminal-role{width:23px;height:23px;display:grid;place-items:center;border-radius:5px;background:var(--ao-tint);color:var(--ao-accent);font-size:11px;font-weight:700;flex-shrink:0}
+  .ao-terminal-name{font-size:12px;font-weight:500;flex:1}
+  .ao-terminal-meta{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--cmd-muted);margin-top:5px}
+  .ao-terminal-state{display:flex;align-items:center;gap:5px;white-space:nowrap;color:var(--ao-accent)}
+  .ao-terminal-state.wait{color:var(--ao-orange)}
+  .ao-terminal-state.error{color:var(--ao-red)}
+  .ao-terminal-output{padding:14px;flex:1;color:var(--cmd-text);font:12px/1.65 Consolas,'Courier New',monospace;overflow-wrap:anywhere;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:520px}
+  .ao-terminal-output p{margin:0 0 2px}
+  .cmd-muted{color:var(--cmd-muted)}
+  .cmd-success{color:var(--cmd-green)}
+  .cmd-warn{color:var(--cmd-yellow)}
+  .cmd-error{color:var(--cmd-red)}
+
+  .ao-footer{font-size:12px;color:var(--ao-muted);display:flex;justify-content:space-between;gap:10px;margin-top:16px;flex-wrap:wrap}
+
+  @media(prefers-color-scheme:dark){html,body{background:#12171e}}
+  html,body{margin:0;padding:0;background:#f5f7f9}
+  body{font-family:'Segoe UI',Arial,sans-serif}
+</style>
+</head>
+<body>
+<div id="ao-studio">
+<div class="ao-shell">
+
+  <!-- SIDEBAR -->
+  <aside class="ao-side">
+    <div class="ao-brand">
+      <span class="ao-brandmark">⚡</span>
+      <span>Agent Studio<small>MCP TESTER</small></span>
+    </div>
+    <div>
+      <div class="ao-section-label">CÔNG CỤ</div>
+      <nav class="ao-nav">
+        <button aria-current="page">🔌 MCP Tester</button>
+      </nav>
+    </div>
+    <div class="ao-side-bottom">
+      <div class="ao-safe">
+        <strong>🔒 Bảo mật</strong>
+        Token xác thực Bearer.<br>Chỉ đọc/ghi trong repo.
+      </div>
+    </div>
+  </aside>
+
+  <!-- CONTENT -->
+  <div style="min-width:0">
+    <header class="ao-top">
+      <div class="ao-crumb">📁 Workspace / <strong>MCP Tester</strong></div>
+      <span class="ao-chip" id="connChip"><span class="ao-dot"></span> Chưa kết nối</span>
+    </header>
+
+    <main class="ao-main">
+      <div class="ao-heading">
+        <div>
+          <div class="ao-kicker">REMOTE MCP SERVER</div>
+          <h1>MCP Tester</h1>
+          <p class="ao-sub">Gọi tool trực tiếp, kiểm tra token, xem kết quả real-time.</p>
+        </div>
+        <div class="ao-actions">
+          <button class="ao-btn" onclick="listTools()">📋 Lấy danh sách tools</button>
+          <button class="ao-btn ao-btn-primary" onclick="callTool()">▶ Gọi Tool</button>
+        </div>
+      </div>
+
+      <div class="mcp-grid ao-console">
+
+        <!-- LEFT: config + input -->
+        <div>
+          <div class="ao-panel" style="margin-bottom:12px">
+            <div class="ao-panel-head"><h2>Kết nối</h2></div>
+            <div style="padding:14px 16px">
+              <div class="ao-field">
+                <label>Server URL</label>
+                <input id="serverUrl" type="url" value="http://127.0.0.1:8765" placeholder="https://xxxx.trycloudflare.com">
+              </div>
+              <div class="ao-field">
+                <label>Token</label>
+                <div class="ao-inrow">
+                  <input id="token" type="text" value="ywr3FODXtqsHMuP1M_zp8_IVazrSBM9FCltHvmQFp5c">
+                  <button class="ao-btn" title="Copy token" onclick="navigator.clipboard.writeText(document.getElementById('token').value)" style="min-width:34px;padding:0">⎘</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ao-panel">
+            <div class="ao-panel-head"><h2>Gọi Tool</h2></div>
+            <div style="padding:14px 16px">
+              <div class="ao-field">
+                <label>Chọn nhanh</label>
+                <div class="tool-row">
+                  <button class="tool-pick" onclick="setTool('list_files',{path:'.'})">list_files</button>
+                  <button class="tool-pick" onclick="setTool('read_file',{path:'README.md',start_line:1,end_line:20})">read_file</button>
+                  <button class="tool-pick" onclick="setTool('write_file',{path:'test-mcp.txt',content:'hello MCP'})">write_file</button>
+                  <button class="tool-pick" onclick="setTool('replace_in_file',{path:'test-mcp.txt',old_text:'hello',new_text:'hi'})">replace_in_file</button>
+                </div>
+              </div>
+              <div class="ao-field">
+                <label>Tên tool</label>
+                <input id="toolName" type="text" placeholder="read_file">
+              </div>
+              <div class="ao-field">
+                <label>Arguments (JSON)</label>
+                <textarea id="toolArgs" rows="5" placeholder='{"path": "README.md"}'></textarea>
+              </div>
+              <div style="display:flex;gap:7px;margin-top:14px">
+                <button class="ao-btn ao-btn-primary" style="flex:1" onclick="callTool()">▶ Gọi Tool</button>
+                <button class="ao-btn" onclick="listTools()">Danh sách</button>
+                <button class="ao-btn" onclick="clearOutput()" title="Xóa output" style="min-width:34px;padding:0">🗑</button>
+              </div>
+              <div style="font-size:11px;color:var(--ao-muted);margin-top:8px">Ctrl+Enter để gọi nhanh</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT: terminal output -->
+        <div>
+          <div class="ao-terminal">
+            <div class="ao-terminal-head">
+              <div class="ao-terminal-title-row">
+                <span class="ao-terminal-role">M</span>
+                <span class="ao-terminal-name">MCP Response</span>
+              </div>
+              <div class="ao-terminal-meta">
+                <span class="ao-terminal-state" id="stateEl">● Chờ lệnh</span>
+                <span style="margin-left:auto" id="timingEl"></span>
+              </div>
+            </div>
+            <div class="ao-terminal-output" id="output">
+              <p class="cmd-muted"># Agent Studio — MCP Tester</p>
+              <p class="cmd-muted"># Nhập server URL + token, chọn tool rồi bấm Gọi Tool.</p>
+              <p class="cmd-muted">#</p>
+              <p class="cmd-muted"># Ví dụ test local:</p>
+              <p class="cmd-muted">#   POST http://127.0.0.1:8765/api/mcp/tools/list</p>
+              <p class="cmd-muted">#   Authorization: Bearer &lt;token&gt;</p>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /mcp-grid -->
+
+      <footer class="ao-footer">
+        <span>Agent Studio · MCP Tester</span>
+        <span>Windows · <a href="http://127.0.0.1:8765" target="_blank" style="color:var(--ao-accent)">localhost:8765</a></span>
+      </footer>
+    </main>
+  </div>
+
+</div><!-- /ao-shell -->
+</div><!-- /ao-studio -->
+
+<script>
+function base(){ return document.getElementById('serverUrl').value.replace(/\/$/,''); }
+function tok(){ return document.getElementById('token').value.trim(); }
+
+function setState(cls, text, ms){
+  const el = document.getElementById('stateEl');
+  el.className = 'ao-terminal-state ' + cls;
+  el.textContent = (cls==='wait'?'◌ ':cls==='error'?'✕ ':'● ') + text;
+  document.getElementById('timingEl').textContent = ms!=null ? ms+' ms' : '';
+
+  const chip = document.getElementById('connChip');
+  if(cls===''){
+    chip.className='ao-chip good';
+    chip.innerHTML='<span class="ao-dot"></span> Kết nối OK';
+  } else if(cls==='error'){
+    chip.className='ao-chip bad';
+    chip.innerHTML='<span class="ao-dot"></span> Lỗi';
+  } else {
+    chip.className='ao-chip warn';
+    chip.innerHTML='<span class="ao-dot"></span> Đang gọi…';
+  }
+}
+
+function appendOut(html){ document.getElementById('output').innerHTML += html; }
+function clearOutput(){
+  document.getElementById('output').innerHTML = '<p class="cmd-muted"># Đã xóa.</p>';
+}
+
+function setTool(name, args){
+  document.getElementById('toolName').value = name;
+  document.getElementById('toolArgs').value = JSON.stringify(args, null, 2);
+  document.querySelectorAll('.tool-pick').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+async function listTools(){
+  setState('wait','Đang gọi tools/list…',null);
+  const out = document.getElementById('output');
+  out.innerHTML = '<p class="cmd-muted">POST ' + base() + '/api/mcp/tools/list</p>\n';
+  const t0 = Date.now();
+  try{
+    const r = await fetch(base()+'/api/mcp/tools/list',{method:'POST',headers:{Authorization:'Bearer '+tok()}});
+    const ms = Date.now()-t0;
+    const data = await r.json();
+    if(r.ok){
+      setState('','200 OK',ms);
+      const tools = data.tools||[];
+      appendOut('<p class="cmd-success">✓ '+tools.length+' tools</p>\n');
+      tools.forEach(t=>{
+        appendOut('<p><span class="cmd-success">  '+t.name+'</span> <span class="cmd-muted">— '+((t.description||'').replace(/</g,'&lt;'))+'</span></p>');
+      });
+      appendOut('\n<p class="cmd-muted">'+JSON.stringify(data,null,2).replace(/</g,'&lt;')+'</p>');
+    } else {
+      setState('error',r.status+' '+r.statusText,ms);
+      appendOut('<p class="cmd-error">✕ HTTP '+r.status+': '+JSON.stringify(data).replace(/</g,'&lt;')+'</p>');
+    }
+  }catch(e){
+    setState('error','Lỗi kết nối',Date.now()-t0);
+    appendOut('<p class="cmd-error">✕ '+e+'</p><p class="cmd-muted">Kiểm tra Agent Studio đang chạy và URL đúng.</p>');
+  }
+}
+
+async function callTool(){
+  const name = document.getElementById('toolName').value.trim();
+  if(!name){ alert('Nhập tên tool'); return; }
+  let args={};
+  const raw = document.getElementById('toolArgs').value.trim();
+  if(raw){ try{ args=JSON.parse(raw); }catch(e){ alert('JSON lỗi: '+e.message); return; } }
+
+  setState('wait','Đang gọi '+name+'…',null);
+  const out = document.getElementById('output');
+  out.innerHTML = '<p class="cmd-muted">POST '+base()+'/api/mcp/tools/call</p><p class="cmd-muted">Tool: '+name+'</p><p class="cmd-muted">Args: '+JSON.stringify(args).replace(/</g,'&lt;')+'</p>\n';
+
+  const t0 = Date.now();
+  try{
+    const r = await fetch(base()+'/api/mcp/tools/call',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+tok(),'Content-Type':'application/json'},
+      body:JSON.stringify({name,arguments:args})
+    });
+    const ms = Date.now()-t0;
+    const data = await r.json();
+    if(r.ok){
+      setState('',''+r.status+' OK',ms);
+      const content = data.content||[];
+      content.forEach(c=>{
+        if(c.type==='text'){
+          appendOut('\n<p class="cmd-success">── Kết quả ──</p>\n');
+          appendOut('<p>'+c.text.replace(/</g,'&lt;').replace(/\n/g,'\n</p><p>')+'</p>');
+        }
+      });
+      if(!content.length) appendOut('\n<p class="cmd-muted">'+JSON.stringify(data,null,2).replace(/</g,'&lt;')+'</p>');
+    } else {
+      setState('error',r.status+' '+r.statusText,ms);
+      appendOut('\n<p class="cmd-error">✕ HTTP '+r.status+': '+JSON.stringify(data).replace(/</g,'&lt;')+'</p>');
+      if(r.status===401) appendOut('<p class="cmd-warn">Token sai hoặc thiếu header Authorization.</p>');
+      if(r.status===403) appendOut('<p class="cmd-warn">File bị bảo vệ hoặc ngoài allow_paths.</p>');
+    }
+  }catch(e){
+    setState('error','Lỗi kết nối',Date.now()-t0);
+    appendOut('\n<p class="cmd-error">✕ '+e+'</p><p class="cmd-muted">Kiểm tra Agent Studio đang chạy và URL đúng.</p>');
+  }
+}
+
+document.getElementById('toolArgs').addEventListener('keydown',e=>{
+  if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) callTool();
+});
+</script>
+</body></html>

@@ -84,6 +84,11 @@ def session_id(provider, text):
 def usage(provider, text):
     """Parse reported terminal events only. Missing metrics stay null, never estimates."""
     events = events_of(text)
+    if provider == 'gemini_web':
+        done = any(isinstance(e, dict) and e.get('type') == 'turn.completed' for e in events)
+        return {'source': 'unavailable', 'input_tokens': None, 'output_tokens': None, 'cached_input_tokens': None,
+                'cache_read_input_tokens': None, 'cache_creation_input_tokens': None, 'cost_usd': None,
+                'raw_usage': None, 'terminal_seen': done, 'reported_error': False}
     terminal = next((e for e in reversed(events) if isinstance(e, dict) and
                      e.get('type') in ({'result'} if provider == 'claude' else {'turn.completed'})), None)
     raw = terminal.get('usage') if terminal else None

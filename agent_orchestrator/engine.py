@@ -106,8 +106,10 @@ class Engine:
             if provider not in (None, row['provider']):
                 raise OrchError(f"Agent {agent} là {row['provider']}, không phải {provider}")
             provider = row['provider']
-        if provider not in {'claude', 'codex'}:
-            raise OrchError("provider must be claude or codex")
+        if provider not in {'claude', 'codex', 'gemini_web'}:
+            raise OrchError("provider must be claude, codex or gemini_web")
+        if provider == 'gemini_web' and not self.cfg.provider_enabled('gemini_web'):
+            raise OrchError("gemini_web is not enabled in the owner config")
         scopes, tests = self.clean_args(prompt, allow_paths, tests)
         if remember is not None and not isinstance(remember, bool):
             raise OrchError("remember must be true or false")
@@ -264,8 +266,8 @@ class Engine:
                 provider_of[value] = row['provider']
                 repo_of[value] = row['settings'].get('repo', 'default')
             else:
-                if raw['provider'] not in {'claude', 'codex'}:
-                    raise OrchError(f"Bước {key}: provider phải là claude hoặc codex")
+                if raw['provider'] not in {'claude', 'codex', 'gemini_web'}:
+                    raise OrchError(f"Bước {key}: provider phải là claude, codex hoặc gemini_web")
                 value = ('new', key)
                 provider_of[value] = raw['provider']
             slot[key] = value
@@ -481,7 +483,10 @@ class Engine:
             row = self.db.agent_get(agent) if agent else None
             remember = bool(task.get('remember'))
             resume = row['session_id'] if row and remember and round_no > 1 else None
-            args = argv(self.cfg, task['provider'], persist=remember, resume=resume)  # fail before making worktree if unconfigured
+            browser = task['provider'] == 'gemini_web'
+            if browser and not self.cfg.provider_enabled('gemini_web'):
+                raise OrchError("gemini_web is not enabled in the owner config")
+            args = None if browser else argv(self.cfg, task['provider'], persist=remember, resume=resume)  # fail before making worktree if unconfigured
             before = None
             if round_no == 1:
                 path = git.prepare(task)
@@ -496,8 +501,13 @@ class Engine:
                                                       'round': round_no, 'resume': bool(resume)})
             folder = self.cfg.state / 'runs' / task_id / 'worker'
             stopped = lambda: cancelled() or self.db.get(task_id)['cancel_requested']
-            process = run(args, path, self.cfg.environment(agent=True), self.cfg.timeout,
-                          self.cfg.output_limit, folder, stdin=self.worker_prompt(task, not resume), cancelled=stopped)
+            if browser:
+                from .gemini_bridge import run_worktree_via_bridge
+                process = run_worktree_via_bridge(self.cfg, path, task['allow_paths'], self.worker_prompt(task, not resume),
+                                                  folder, self.cfg.timeout, resume=resume, cancelled=stopped)
+            else:
+                process = run(args, path, self.cfg.environment(agent=True), self.cfg.timeout,
+                              self.cfg.output_limit, folder, stdin=self.worker_prompt(task, not resume), cancelled=stopped)
             text = (folder / 'stdout.log').read_text(encoding='utf-8', errors='replace')
             result['usage'] = usage(task['provider'], text)
             if resume and not process['reason'] and not stopped() and (
@@ -507,9 +517,13 @@ class Engine:
                 detail = (folder / 'stderr.log').read_text(encoding='utf-8', errors='replace')[-300:].strip()
                 self.db.event(task_id, 'resume_failed', {'exit_code': process['exit_code'], 'detail': detail})
                 resume = None
-                args = argv(self.cfg, task['provider'], persist=remember)
-                process = run(args, path, self.cfg.environment(agent=True), self.cfg.timeout,
-                              self.cfg.output_limit, folder, stdin=self.worker_prompt(task, True), cancelled=stopped)
+                if browser:
+                    process = run_worktree_via_bridge(self.cfg, path, task['allow_paths'], self.worker_prompt(task, True),
+                                                      folder, self.cfg.timeout, resume=None, cancelled=stopped)
+                else:
+                    args = argv(self.cfg, task['provider'], persist=remember)
+                    process = run(args, path, self.cfg.environment(agent=True), self.cfg.timeout,
+                                  self.cfg.output_limit, folder, stdin=self.worker_prompt(task, True), cancelled=stopped)
                 text = (folder / 'stdout.log').read_text(encoding='utf-8', errors='replace')
                 result['usage'] = usage(task['provider'], text)
             result['worker'] = process

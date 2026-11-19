@@ -10,3 +10,7 @@ dist/
 
 # Prompt/báo cáo giao việc cho agent (không đưa lên git)
 NhatKyCongViec/promt/
+
+# Cloudflare tunnel binary (tải về bằng tools/download-cloudflared.ps1)
+tools/cloudflared.exe
+cloudflared.exe

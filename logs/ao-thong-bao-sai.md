@@ -137,3 +137,49 @@ Nguồn mã liên quan (đã đọc 10/11/2026): `agent_orchestrator/terminals.p
 - Mong muốn: như các mục trước (hoãn thông báo khi có tác vụ nền đang chạy / dòng `... running`).
 
 - 11/11 ~00:02: [AO] báo "agy-18 đã xong" nhưng agent chỉ idle sau LỖI MẠNG ("There was a network issue connecting to the server", Error ID 95a0dd18-a9d3-4c89-9515-d3e040074f56-326): lệnh SỬA LẦN 1 chưa được thực hiện (git: 0 commit mới, `AllowSelfOverride` còn nguyên). Công cụ coi "yên lặng" là "xong". Đã gửi lại lệnh.
+
+## 12/11/2026 ~20:55 - [AO] "agy-11 da xong" sai: Agent 0 chua giao viec cho agy-11 (cua so moi mo, model Flash, o nhap trong). Phat hien bang read_terminal.
+
+## 12/11/2026 ~21:56 - [AO] "agy-17 da xong" sai: S1 chua xong (S1-4, S1-5 buoc A chua lam, chua co BAOCAO-CTRL-S1.md); terminal bao "Individual quota reached ... Resets in 48h".
+
+
+## 16/11/2026 ~16:48 — agy-1 — BÁO SỚM + BÁO LẶP
+- Loại: BÁO SỚM | BÁO LẶP
+- [AO] nói: hai dòng liên tiếp `[AO] agy-1 yên lặng (chưa xác nhận đã xong)  thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-1).`
+- Thực tế: agy-1 vẫn đang suy nghĩ và đọc tệp (`Inspecting WebHisActionBaselineTests.cs, DefaultFeatures.cs, and web-his-actions.txt at fbbfa8b8`), chưa ghi `TINT2-TONG-HOP.md`, chưa in dòng `HOÀN TẤT`.
+- Bằng chứng: `read_terminal(agy-1, clean=true)` lúc 16:48:50 hiện dòng thinking đang stream dở, tệp đầu ra chưa tồn tại.
+- Mong muốn: không báo lặp hai dòng giống nhau liên tiếp và nhận diện trạng thái đang stream thinking của agy.
+- Giả thuyết (chưa kiểm): khi agy đang stream đoạn suy nghĩ không kèm chữ `esc to cancel` ở 2 dòng cuối hoặc khoảng lặng ngắn >4s xen giữa 4000 byte redraw TUI làm `REARM_BULK_BYTES` kích hoạt lại ngay.
+
+
+## 16/11/2026 ~16:58 — agy-1 — BÁO LẶP SAU KHI ĐÃ XONG THẬT
+- Loại: BÁO LẶP
+- [AO] nói: `[AO] agy-1 yên lặng (chưa xác nhận đã xong)  thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-1).`
+- Thực tế: agy-1 đã hoàn thành công việc từ ~16:53:08, chủ dự án đã bấm nút xác nhận hoàn thành lúc 16:55:08, không có lệnh mới nào được gõ vào agy-1 từ 16:53 đến 16:58.
+- Bằng chứng: tệp `TINT2-TONG-HOP.md` có mtime 16:53:08; terminal agy-1 giữ nguyên prompt rảnh `? for shortcuts auto · Gemini 4 Hydrogen · medium`.
+- Mong muốn: sau khi chủ dự án đã bấm `notify-done` (hoặc đã báo 1 lần và không có input mới), không phát lại thông báo yên lặng cho cùng lượt rảnh đó.
+- Giả thuyết (chưa kiểm): TUI của agy tự redraw định kỳ (ví dụ đổi đồng hồ/trạng thái đăng nhập) sinh > `REARM_BULK_BYTES` (4000 byte) mà không có resize nên `update_interactive_idle` tự re-arm thông báo.
+
+## 16/11/2026 ~17:16:17 & ~17:17:47 — agy-1 — BÁO SỚM + BÁO LẶP (đang chạy subagent nội bộ)
+- Loại: BÁO SỚM | BÁO LẶP
+- [AO] nói: `[AO] agy-1 yên lặng (chưa xác nhận đã xong)  thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-1).` (2 lần cách nhau 90 giây).
+- Thực tế: agy-1 đã bật subagent nội bộ và kết thúc lượt trả lời đầu để chờ subagent trả kết quả; subagent vẫn đang chạy liên tục ở dòng dưới footer.
+- Bằng chứng: `read_terminal(agy-1, clean=true)` lúc 17:16:48 hiện `Generating · 1m9s Search StaffAcco... · 1m9s` và lúc 17:18:12 hiện footer `? for shortcuts auto · Gemini 4 Hydrogen · medium · 1 subagent(s)` kèm dòng tiến trình `Running command · 2m33s`.
+- Mong muốn: nhận diện mẫu `\d+\s+subagents?\(s\)|subagent\(s\)|Agent\(` trên footer/màn hình cuối của agy là trạng thái BẬN (`is_terminal_spinning` / `SOFT_BUSY_MARKER`), vì lúc chờ subagent thì dòng footer của agy vẫn có `? for shortcuts` cùng lúc với `· 1 subagent(s)`!
+- Giả thuyết (có bằng chứng trực tiếp trên màn hình): trong `terminals.py` / `screen.py`, `is_terminal_spinning` ưu tiên kiểm `IDLE_FOOTER = \?\s*for shortcuts` để kết luận rảnh (`False`), trong khi footer mới của agy khi đang chạy subagent hiển thị đồng thời cả hai: `? for shortcuts          auto · Gemini 4 Hydrogen · medium · 1 subagent(s)`!
+
+## 16/11/2026 ~17:17:01 — agy-5 — BÁO SỚM (đang chạy subagent / Running command)
+- Loại: BÁO SỚM
+- [AO] nói: `[AO] agy-5 yên lặng (chưa xác nhận đã xong)  thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-5).`
+- Thực tế: agy-5 vừa nhận kết quả từ `Agent(research: W3 Service Signature Reader)` và đang suy nghĩ 22.6s rồi chạy `● Running (Select-String -Path "C:\wt\ctrl-web-d...)`, chưa sửa tệp, chưa ghi báo cáo.
+- Bằng chứng: `read_terminal(agy-5, clean=true)` lúc 17:16:48 hiện `● Agent(research: W3 Service Signature Reader) · 1m2s` và lúc 17:17:33 hiện `● Running (Select-String ...)`, chưa có `BAOCAO-CTRL-WEB-FIXREV3-W2W3.md`.
+- Mong muốn: không báo yên lặng khi màn hình có `Agent(...)` hoặc `● Running (` mà dòng dưới TUI vẫn giữ footer `? for shortcuts` / `Tip:`.
+- Giả thuyết (chưa kiểm): tương tự agy-1 — khung dưới cùng của agy TUI giữ cố định hộp nhập `>` và dòng `? for shortcuts` hoặc `└ Tip:` ngay cả khi ở vùng trên đang `● Running (...)` hoặc `● Agent(...)`, khiến `bottom_lines(..., 2)` chỉ thấy dòng footer tĩnh mà bỏ sót trạng thái bận phía trên.
+
+
+## 16/11/2026 ~17:20:09 — agy-1 — BÁO SỚM LẦN 3 (chủ dự án xác nhận nguyên nhân: agent chia subagent và chờ subagent báo cáo)
+- Loại: BÁO SỚM | BÁO LẶP
+- [AO] nói: `[AO] agy-1 yên lặng (chưa xác nhận đã xong)  thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-1).`
+- Thực tế: agy-1 đang chia subagent và đứng ở trạng thái chờ subagent hoàn thành báo cáo về (`Generating · 4m22s / Find Inpatient ... · 4m22s / Running command · 4m25s`).
+- Bằng chứng: `read_terminal(agy-1, clean=true)` lúc 17:20:04 hiện subagent đang chạy ở phút thứ 4 (`4m25s`), chưa có tệp `BAOCAO-CTRL-WEB-FIXREV3-W1W6W10.md`; chủ dự án trực tiếp quan sát cửa sổ và xác nhận đây là trường hợp agent chia subagent + chờ subagent báo cáo nên dashboard báo sai.
+- Mong muốn: trong `terminals.py` (`is_terminal_spinning` / `terminal_busy_kind`), không chỉ nhìn dòng `? for shortcuts` đơn lẻ để kết luận rảnh khi cùng dòng footer có `· N subagent(s)` hoặc bên dưới khung có dòng trạng thái subagent (`Generating · \d+`, `Running command · \d+`, `Reading file · \d+`, `Agent(...)`).

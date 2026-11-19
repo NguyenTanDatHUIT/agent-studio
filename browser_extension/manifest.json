@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Agent Studio - Gemini Browser Bridge",
+  "version": "0.1.0",
+  "description": "Cầu nối cục bộ giữa Agent Studio (127.0.0.1) và tab Google Gemini để đọc/sửa code trực tiếp.",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "https://gemini.google.com/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content_gemini.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Agent Studio Gemini Bridge",
+    "default_popup": "popup.html"
+  }
+}

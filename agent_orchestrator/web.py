@@ -18,6 +18,8 @@ import urllib.request
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .config import OrchError, inside
+from .gemini_bridge import GeminiBridgeHub, WorkspaceExecutor
+from . import mcp_server
 from .terminals import TERMINAL_AGENTS, Terminals
 from .engine import task_lock
 from .gitops import ID
@@ -89,6 +91,28 @@ class WebServer(ThreadingHTTPServer):
         super().__init__(('127.0.0.1', port), Handler)
         self.authority = f'127.0.0.1:{self.server_port}'
         self.origin = 'http://' + self.authority
+        # Gemini Web bridge: a separate key, only for the browser extension and the queue worker. The file lets a worker
+        # running in another process reach this server; it is removed on close.
+        self.gemini_bridge = GeminiBridgeHub(engine.cfg, self.terminals)
+        self.terminals.gemini_bridge = self.gemini_bridge
+        self.gemini_bridge_file = engine.cfg.state / 'gemini-bridge.json'
+        self.gemini_bridge_file.write_text(json.dumps({'port': self.server_port, 'key': self.gemini_bridge.key}), encoding='utf-8')
+        # MCP server token — dùng token cố định từ config nếu có, ngược lại tự sinh mỗi lần khởi động
+        fixed = engine.cfg.mcp_fixed_token() if hasattr(engine.cfg, 'mcp_fixed_token') else None
+        self.mcp_token = fixed if fixed else secrets.token_urlsafe(32)
+        self.mcp_server_file = engine.cfg.state / 'mcp-server.json'
+        self.mcp_server_file.write_text(json.dumps({'port': self.server_port, 'token': self.mcp_token}), encoding='utf-8')
+
+    def server_close(self):
+        try:
+            self.gemini_bridge_file.unlink()
+        except OSError:
+            pass
+        try:
+            self.mcp_server_file.unlink()
+        except OSError:
+            pass
+        super().server_close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -112,6 +136,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         self.send_header('X-Frame-Options', 'DENY')
+        if getattr(self, '_gemini_cors', False):
+            self.cors_gemini()
         self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; media-src 'self' data: blob:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
         if filename:
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
@@ -123,6 +149,75 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self.handle_request(True)
+
+    def do_OPTIONS(self):
+        # CORS preflight only for the Gemini extension routes; everything else stays same-origin only.
+        if urlsplit(self.path).path.startswith('/api/gemini-bridge/') and self.headers.get('Host') == self.server.authority:
+            self._gemini_cors = True
+            self.send_response(204)
+            self.cors_gemini()
+            self.send_header('Content-Length', '0')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            return
+        # MCP endpoints accept cross-origin preflight (token required on actual request).
+        if urlsplit(self.path).path.startswith('/api/mcp/'):
+            self.send_response(204)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Content-Length', '0')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            return
+        self.send_response(405)
+        self.send_header('Content-Length', '0')
+        self.send_header('Connection', 'close')
+        self.end_headers()
+
+    def cors_gemini(self):
+        origin = self.headers.get('Origin', '')
+        if origin.startswith(('chrome-extension://', 'moz-extension://')):
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Gemini-Bridge-Key')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+
+    def gemini_ext(self, url, mutation):
+        """Routes for the browser extension and the queue worker. Authenticated only by the bridge key."""
+        hub = self.server.gemini_bridge
+        if not hmac.compare_digest(self.headers.get('X-Gemini-Bridge-Key', '').encode(), hub.key.encode()):
+            return self.reply(401, {'error': 'Bridge key required'})
+        if not self.server.engine.cfg.provider_enabled('gemini_web'):
+            return self.reply(403, {'error': 'gemini_web is disabled in the owner config'})
+        parts = [unquote(x) for x in url.path.strip('/').split('/')][2:]
+        query = parse_qs(url.query)
+
+        def q(name, default=''):
+            return query.get(name, [default])[0]
+        if parts == ['poll'] and not mutation:
+            item = hub.poll_next_prompt(q('client_id', 'ext')[:64], q('tab_id') or None, q('url')[:400], float(q('wait', '8') or 8))
+            return self.reply(200, item)
+        if parts == ['reply'] and mutation:
+            body = self.read_json()
+            if body is None:
+                return
+            return self.reply(200, hub.submit_reply(str(body.get('prompt_id', '')), str(body.get('text') or ''),
+                                                    str(body.get('url') or ''), body.get('error') or None,
+                                                    body.get('blocks'), str(body.get('debug_html') or '')))
+        if parts == ['jobs'] and mutation:
+            body = self.read_json()
+            if body is None:
+                return
+            return self.reply(200, hub.create_worker_job(str(body.get('worktree', '')), body.get('allow_paths') or [],
+                                                         str(body.get('prompt', '')), body.get('resume')))
+        if len(parts) == 2 and parts[0] == 'jobs' and not mutation:
+            return self.reply(200, hub.get_worker_job(parts[1], float(q('wait', '0') or 0)))
+        if len(parts) == 3 and parts[0] == 'jobs' and parts[2] == 'cancel' and mutation:
+            if self.read_json() is None:
+                return
+            return self.reply(200, hub.cancel_worker_job(parts[1]))
+        return self.reply(404, {'error': 'Route not found'})
 
     def read_json(self):
         """Parse the JSON object body. Replies and returns None for transport-level problems."""
@@ -153,12 +248,22 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self, mutation):
         self.close_connection = True
         try:
+            if self.path.startswith('/api/mcp/'):
+                self._handle_mcp()
+                return
             if self.headers.get('Host') != self.server.authority:
                 return self.reply(403, {'error': 'Invalid Host'})
+            url = urlsplit(self.path)
+            if url.path.startswith('/api/gemini-bridge/') and url.path not in {'/api/gemini-bridge/status', '/api/gemini-bridge/toggle'}:
+                # The extension origin (chrome-extension://...) is cross-site by design; it is gated by the bridge key instead.
+                ext_origin = self.headers.get('Origin', '')
+                if ext_origin and not ext_origin.startswith(('chrome-extension://', 'moz-extension://')):
+                    return self.reply(403, {'error': 'Cross-origin access denied'})
+                self._gemini_cors = True
+                return self.gemini_ext(url, mutation)
             origin = self.headers.get('Origin')
             if (origin and origin != self.server.origin) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
                 return self.reply(403, {'error': 'Cross-origin access denied'})
-            url = urlsplit(self.path)
             static = {'/': ('index.html', 'text/html; charset=utf-8'),
                       '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
                       '/icons.js': ('icons.js', 'text/javascript; charset=utf-8'),
@@ -232,6 +337,72 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self.reply(500, {'error': 'Internal dashboard error. Check local state.'})
 
+    def _handle_mcp(self):
+        """Handle all /api/mcp/* requests (Bearer token auth, CORS-open)."""
+        try:
+            # Send CORS header on all responses
+            path = urlsplit(self.path).path  # e.g. /api/mcp/tools/list
+            path_parts = [p for p in path.strip('/').split('/') if p][2:]  # strip "api", "mcp"
+            # Bearer token check
+            auth = self.headers.get('Authorization', '')
+            expected = 'Bearer ' + self.server.mcp_token
+            if not hmac.compare_digest(auth.encode('utf-8'), expected.encode('utf-8')):
+                body = json.dumps({'error': 'MCP token không hợp lệ hoặc thiếu Authorization header.'}, ensure_ascii=False).encode('utf-8')
+                self.send_response(401)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(body)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            # Parse JSON body (optional for GET-like tools/list)
+            request_body: dict = {}
+            content_length = int(self.headers.get('Content-Length', '0') or '0')
+            if content_length > 0:
+                if content_length > 200_000:
+                    raw_body = json.dumps({'error': 'Body quá lớn (tối đa 200 KB).'}, ensure_ascii=False).encode('utf-8')
+                    self.send_response(413)
+                    self.send_header('Content-Type', 'application/json; charset=utf-8')
+                    self.send_header('Content-Length', str(len(raw_body)))
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.wfile.write(raw_body)
+                    return
+                raw = self.rfile.read(content_length)
+                try:
+                    request_body = json.loads(raw)
+                    if not isinstance(request_body, dict):
+                        request_body = {}
+                except (ValueError, TypeError):
+                    request_body = {}
+            # Build executor using repo from engine config
+            cfg = self.server.engine.cfg
+            executor = WorkspaceExecutor(cfg.repo, allow_paths=cfg.mcp_allow_paths() if hasattr(cfg, 'mcp_allow_paths') else None)
+            status_code, response = mcp_server.handle_mcp(path_parts, request_body, executor)
+            resp_bytes = json.dumps(response, ensure_ascii=False).encode('utf-8')
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Content-Length', str(len(resp_bytes)))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Connection', 'close')
+            self.end_headers()
+            self.wfile.write(resp_bytes)
+        except Exception as exc:  # noqa: BLE001
+            err = json.dumps({'error': f'Lỗi MCP nội bộ: {exc}'}, ensure_ascii=False).encode('utf-8')
+            try:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Content-Length', str(len(err)))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(err)
+            except Exception:  # noqa: BLE001
+                pass
+
     def route(self, path, query, body, mutation):
         e = self.server.engine
         if path == '/api/tts' and not mutation:
@@ -247,6 +418,17 @@ class Handler(BaseHTTPRequestHandler):
                                    'providers': self.server.runners.snapshot() if self.server.runners else {}})
         if path == '/api/terminals' and not mutation:
             return self.reply(200, self.server.terminals.snapshot())
+        if path == '/api/gemini-bridge/status' and not mutation:
+            hub = self.server.gemini_bridge
+            return self.reply(200, {**hub.status_snapshot(), 'pair': f'{self.server.origin}|{hub.key}'})
+        if path == '/api/gemini-bridge/toggle' and mutation:
+            if set(body) != {'enabled'} or type(body['enabled']) is not bool:
+                raise OrchError('Expected only enabled (true/false)')
+            # In memory only: the owner config file is never rewritten by the dashboard.
+            provider = e.cfg.data.setdefault('providers', {}).setdefault(
+                'gemini_web', {'command': [], 'model': 'gemini-web', 'max_turns': 12})
+            provider['enabled'] = body['enabled']
+            return self.reply(200, self.server.gemini_bridge.status_snapshot())
         if path == '/api/conversations' and not mutation:
             try:
                 limit = int(query.get('limit', ['50'])[0])
@@ -302,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, self.server.terminals.stream(cursors, min(float(query.get('wait', ['0'])[0]), 8)))
         if path.startswith('/api/terminals/'):
             parts = path.split('/')
-            if len(parts) == 5 and parts[4] in {'output', 'input', 'resize', 'close'}:
+            if len(parts) == 5 and parts[4] in {'output', 'input', 'resize', 'close', 'notify-done'}:
                 session = self.server.terminals.get(parts[3])
                 if parts[4] == 'output' and not mutation:
                     after, data, nxt, code = session.read(int(query.get('after', ['0'])[0]), min(float(query.get('wait', ['0'])[0]), 8))
@@ -316,6 +498,8 @@ class Handler(BaseHTTPRequestHandler):
                 if mutation and parts[4] == 'close' and not body:
                     self.server.terminals.close(parts[3])
                     return self.reply(200, {'ok': True})
+                if mutation and parts[4] == 'notify-done' and not body:
+                    return self.reply(200, self.server.terminals.notify_done(parts[3]))
             return self.reply(404, {'error': 'Route or arguments not supported'})
         if path == '/api/agent0' and not mutation:
             return self.reply(200, agent0_status(e.cfg.state))
@@ -417,8 +601,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, {'repo': str(e.cfg.repo), 'base_ref': e.cfg.data.get('base_ref', 'HEAD'),
                                    'demo': e.cfg.data.get('demo') is True,
                                    'execution_enabled': e.cfg.data.get('acknowledge_local_execution') is True,
-                                   'providers': {k: bool(v.get('command')) for k, v in e.cfg.data.get('providers', {}).items() if k in {'claude', 'codex'}},
-                                   'terminal_agents': [k for k in TERMINAL_AGENTS if e.cfg.data.get('providers', {}).get(k, {}).get('command')],
+                                   'providers': {k: e.cfg.provider_enabled(k) for k in e.cfg.data.get('providers', {}) if k in {'claude', 'codex', 'gemini_web'}},
+                                   'terminal_agents': [k for k in TERMINAL_AGENTS if e.cfg.provider_enabled(k)],
                                    'repos': list(e.cfg.repos),
                                    'roles': role_choices(),
                                    'tests': list(e.cfg.data.get('tests', {}))})
@@ -464,11 +648,16 @@ class Handler(BaseHTTPRequestHandler):
                         'applied_digest': e.db.setting(orch_rules.APPLIED_KEY, None),
                         'agent0_running': bool(agent0 is not None and getattr(agent0, 'alive', False)),
                         'text_limit': orch_rules.TEXT_LIMIT, 'history': [{'time': h.get('time')} for h in orch_rules.history(e.db)]}
+            def rules_saved():
+                markdown = orch_rules.current(e.cfg, e.db)[1]
+                self.server.terminals.rules_changed(orch_rules.digest(markdown))
+
             sub = path[len('/api/orchestration-rules'):]
             if sub == '' and not mutation:
                 return self.reply(200, rules_view())
             if sub == '' and mutation:
                 orch_rules.save(e.db, body, repos)
+                rules_saved()
                 return self.reply(200, rules_view())
             if sub == '/preview' and mutation:
                 candidate = orch_rules.validate(body, repos)
@@ -476,6 +665,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, {'preview': markdown, 'unknown_variables': unknown})
             if sub == '/reset' and mutation and not body:
                 orch_rules.reset(e.db)
+                rules_saved()
                 return self.reply(200, rules_view())
             if sub == '/restart-agent0' and mutation and not body:
                 info = self.server.terminals.restart_agent0()
@@ -484,6 +674,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, orch_rules.history(e.db))
             if sub == '/restore' and mutation and set(body) == {'index'}:
                 orch_rules.restore(e.db, body['index'], repos)
+                rules_saved()
                 return self.reply(200, rules_view())
             return self.reply(404, {'error': 'Route or arguments not supported'})
         match = re.fullmatch(r'/api/agents/(\d{1,9})/settings', path)
@@ -575,6 +766,7 @@ def serve_web(engine, port=8765, run_workers=False, open_browser=False):
             bridge.write_text(json.dumps({'port': server.server_port, 'key': server.bridge_key, 'pid': os.getpid()}), encoding='utf-8')
             print(f'Dashboard: {server.origin}/#token={server.token}', flush=True)
             print('Local only. ' + ('Managed runners enabled.' if run_workers else 'Workers run separately.') + ' Ctrl+C to stop.', flush=True)
+            print(f'MCP Server: {server.origin}/api/mcp/  Token: {server.mcp_token}', flush=True)
             if open_browser:
                 import threading
                 from .browser import open_dashboard

@@ -8,7 +8,7 @@ const assets = path.join(__dirname, '..', 'agent_orchestrator', 'web_assets');
 
 const params = () => ({default_provider: 'agy', provider_models: {agy: {model: 'Gemini 4 Argon', effort: 'medium'}, claude: {model: '', effort: ''}, codex: {model: '', effort: ''}},
   max_fix_rounds: 2, max_agents_per_task: 2, max_concurrent_agents: 3, concurrency_enforced: true, single_builder: true, close_on_success: true,
-  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true});
+  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', common_prompt_file: '', common_prompt_enforce: true, subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true});
 const texts = () => ({rules: 'Quy tắc mặc định {MAX_FIX_ROUNDS}', constraints: 'Ràng buộc mặc định', checklist: 'Checklist mặc định'});
 const sampleRoles = () => ([
   {slug: 'index', category: 'index', label: 'Bảng điều hướng (INDEX.md)', summary: 'Hướng dẫn nhanh', relpath: 'INDEX.md', path: 'C:/state/prompts/roles/INDEX.md', content: '# Bảng điều hướng'},
@@ -61,6 +61,9 @@ const sampleRoles = () => ([
   assert.match(dlg().textContent, /Mặc định: 2/, 'hiện giá trị mặc định');
   assert.equal(dlg().querySelector('[data-rt-count="constraints"]').textContent, '18/15000');
   assert.equal(dlg().querySelector('[data-rp="roles_enabled"]').checked, true);
+  assert.equal(dlg().querySelector('[data-rp="common_prompt_file"]').value, '', 'ô tệp prompt chung có mặt, mặc định trống');
+  assert.equal(dlg().querySelector('[data-rp="common_prompt_file"]').type, 'text');
+  assert.equal(dlg().querySelector('[data-rp="common_prompt_enforce"]').checked, true, 'ép tệp prompt chung bật mặc định');
   assert.match(dlg().querySelector('[data-role-inspect-body]').textContent, /Bảng điều hướng/);
   const roleSel = dlg().querySelector('[data-role-inspect]');
   roleSel.value = '1';
@@ -80,10 +83,14 @@ const sampleRoles = () => ([
   assert.equal(dlg().querySelector('[data-rt-count="constraints"]').textContent, '20/15000');
   const box = dlg().querySelector('[data-rp="single_builder"]'); box.checked = false;
   input('[data-rp-model="claude"]', 'Opus');
+  input('[data-rp="common_prompt_file"]', 'C:/AgentControl/prompts/PROMPT-CHUNG.md');
+  dlg().querySelector('[data-rp="common_prompt_enforce"]').checked = false;
   await click('[data-rules-save]');
   assert.deepEqual(last().slice(0, 2), ['POST', '/orchestration-rules']);
   assert.equal(last()[2].params.max_fix_rounds, 4);
   assert.equal(last()[2].params.single_builder, false);
+  assert.equal(last()[2].params.common_prompt_file, 'C:/AgentControl/prompts/PROMPT-CHUNG.md');
+  assert.equal(last()[2].params.common_prompt_enforce, false);
   assert.deepEqual(last()[2].params.provider_models.claude, {model: 'Opus', effort: ''});
   assert.equal(last()[2].texts.constraints, 'Chỉ sửa thư mục src.');
   assert.equal(dlg().querySelector('[data-rp="max_fix_rounds"]').value, '4', 'hiện lại giá trị đã lưu');

@@ -46,6 +46,14 @@ def discover():
 
 
 def probe(config, provider, check_auth=False):
+    if provider == 'gemini_web':
+        enabled = config.provider_enabled('gemini_web')
+        paired = (config.state / 'gemini-bridge.json').is_file()
+        result = {'configured': enabled, 'compatible': enabled, 'authenticated': paired if check_auth else None,
+                  'version': 'browser-bridge-0.1', 'missing_flags': []}
+        if not enabled:
+            result['error'] = 'Set providers.gemini_web.enabled=true in the owner config.'
+        return result
     settings = config.data.get('providers', {}).get(provider, {})
     base = settings.get('command')
     result = {'configured': bool(base), 'compatible': False, 'authenticated': None}

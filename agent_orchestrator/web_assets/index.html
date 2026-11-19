@@ -20,7 +20,7 @@
       <header class="ao-top"><div class="ao-crumb"><i data-lucide="folder-git-2"></i> Workspace <span>/</span><strong data-crumb="">Cửa sổ CMD</strong></div><span class="ao-demo">ĐANG KẾT NỐI</span></header>
       <main class="ao-main">
         <div class="ao-heading"><div><div class="ao-kicker">LOCAL WORKSPACE</div><h1 data-title="">Trung tâm điều phối</h1><p class="ao-sub" data-sub="">Giao việc rõ ràng. Theo dõi xuyên suốt. Duyệt từng thay đổi.</p></div><button type="button" class="ao-btn ao-btn-primary cursor-interaction" data-action="new-task"><i data-lucide="plus" aria-hidden="true"></i>Tạo nhiệm vụ</button></div>
-        <div class="ao-toast" role="status" data-toast="" hidden=""></div>
+        <div class="ao-toast" role="status" aria-live="polite" popover="manual" data-toast="" hidden=""></div>
         <section data-view="terminals" class="ao-console-view" aria-label="Các cửa sổ dòng lệnh">
   
   <div class="ao-console-toolbar">
@@ -81,4 +81,218 @@
       <div class="ao-settings-extra"><button type="button" class="ao-btn cursor-interaction" data-action="new-task"><i data-lucide="plus" aria-hidden="true"></i>Tạo nhiệm vụ</button><button type="button" class="ao-btn cursor-interaction" data-action="open-orch-rules"><i data-lucide="list-checks" aria-hidden="true"></i>Quy tắc điều phối agent</button><div data-compact-extra-mount=""></div></div>
     </div>
   </div>
-</template></div></body></html>
+</template>
+<style>
+/* MCP Tester terminal */
+#ao-studio .ao-mcp-tester{padding:12px 14px;display:flex;flex-direction:column;gap:9px;flex:1}
+#ao-studio .ao-mcp-row{display:flex;gap:7px;align-items:center;font-size:12px}
+#ao-studio .ao-mcp-row label{color:var(--ao-muted);flex-shrink:0;width:48px}
+#ao-studio .ao-mcp-row input{flex:1;min-width:0;background:var(--cmd-bg,#101820);border:1px solid var(--ao-line);border-radius:6px;color:var(--cmd-text,#d4e4ef);font:12px Consolas,'Courier New',monospace;padding:5px 8px;outline:none}
+#ao-studio .ao-mcp-row input:focus{border-color:var(--ao-accent)}
+#ao-studio .ao-mcp-tools{display:flex;flex-wrap:wrap;gap:5px}
+#ao-studio .ao-mcp-pick{border:1px solid var(--ao-line);border-radius:5px;background:var(--ao-soft);color:var(--ao-muted);padding:4px 8px;font-size:12px;cursor:pointer;transition:border-color .12s,color .12s}
+#ao-studio .ao-mcp-pick:hover{border-color:var(--ao-accent);color:var(--ao-accent)}
+#ao-studio .ao-mcp-pick.active{background:var(--ao-tint);border-color:var(--ao-accent);color:var(--ao-accent)}
+#ao-studio .ao-mcp-args{width:100%;background:var(--cmd-bg,#101820);border:1px solid var(--ao-line);border-radius:6px;color:var(--cmd-text,#d4e4ef);font:12px/1.5 Consolas,'Courier New',monospace;padding:7px 9px;resize:vertical;min-height:60px;outline:none}
+#ao-studio .ao-mcp-args:focus{border-color:var(--ao-accent)}
+#ao-studio .ao-mcp-actions{display:flex;gap:7px}
+#ao-studio .ao-mcp-out{flex:1;min-height:120px;overflow-y:auto;font:12px/1.65 Consolas,'Courier New',monospace;white-space:pre-wrap;word-break:break-word;color:var(--cmd-text,#d4e4ef);border-top:1px solid var(--ao-line);padding-top:9px;margin-top:3px}
+#ao-studio .ao-mcp-out .m-ok{color:#8fdfbd}
+#ao-studio .ao-mcp-out .m-err{color:#ffb0b8}
+#ao-studio .ao-mcp-out .m-dim{color:#9bb0c1}
+#ao-studio .ao-mcp-out .m-warn{color:#f3d28e}
+</style>
+</div>
+
+<script>
+(function(){
+  // Chờ app.js xong rồi mới patch
+  document.addEventListener('DOMContentLoaded', function() { setTimeout(patchMCP, 200); });
+  function patchMCP(){
+    const root = document.getElementById('ao-studio');
+    if(!root) return;
+
+    // --- Thêm option MCP Tester vào modal "Thêm terminal agent" ---
+    const addModal = root.querySelector('dialog:not(.ao-bridge-dialog):not(.ao-window-dialog ~ .ao-window-dialog) .ao-window-dialog, dialog');
+    // Tìm dialog đúng bằng h2 text
+    const dialogs = root.querySelectorAll('dialog');
+    let agentModal = null;
+    for(const d of dialogs){
+      if(d.querySelector('h2')?.textContent?.includes('terminal agent')){ agentModal = d; break; }
+    }
+    if(!agentModal){
+      // Thử lại sau 500ms nếu chưa có
+      setTimeout(patchMCP, 500); return;
+    }
+
+    const sel = agentModal.querySelector('[data-add-agent]');
+    if(!sel) return;
+
+    // Inject option nếu chưa có
+    if(!sel.querySelector('[value="mcp_tester"]')){
+      const opt = document.createElement('option');
+      opt.value = 'mcp_tester';
+      opt.textContent = '⚡ MCP Tester';
+      sel.appendChild(opt);
+    }
+
+    // Ẩn/hiện repo selector khi chọn mcp_tester
+    sel.addEventListener('change', function(){
+      const wrap = agentModal.querySelector('[data-add-repo-wrap]');
+      if(wrap) wrap.hidden = (sel.value === 'mcp_tester') || (root._aoRepos||[]).length < 2;
+    });
+
+    // Hook vào close event của modal
+    if(!agentModal._mcpPatched){
+      agentModal._mcpPatched = true;
+      agentModal.addEventListener('close', function(){
+        if(agentModal.returnValue !== 'add') return;
+        if(sel.value !== 'mcp_tester') return;
+        openMCPTester();
+      });
+    }
+
+    // Lưu repos list khi app render (dùng MutationObserver nhẹ)
+    const repoSel = agentModal.querySelector('[data-add-repo]');
+    if(repoSel){
+      const ob = new MutationObserver(()=>{ root._aoRepos = [...repoSel.options].map(o=>o.value); });
+      ob.observe(repoSel, {childList:true});
+    }
+  }
+
+  // ---- Mở MCP Tester terminal ----
+  let mcpCount = 0;
+  function openMCPTester(){
+    const grid = document.querySelector('#ao-studio [data-console-grid]');
+    if(!grid){ console.warn('MCP Tester: grid not found'); return; }
+
+    mcpCount++;
+    const id = 'mcp-tester-' + mcpCount;
+
+    // Đọc token từ server config nếu có, fallback localStorage
+    const savedToken = localStorage.getItem('ao-mcp-tester-token') || '';
+    const savedUrl   = localStorage.getItem('ao-mcp-tester-url')   || 'http://127.0.0.1:8765';
+
+    const article = document.createElement('article');
+    article.className = 'ao-terminal';
+    article.dataset.window = id;
+    article.innerHTML = `
+<header class="ao-terminal-head">
+  <div class="ao-terminal-title-row">
+    <button type="button" class="ao-terminal-drag" draggable="true" data-drag="${id}" aria-label="Di chuyển MCP Tester">⠿</button>
+    <span class="ao-terminal-role" style="background:var(--ao-tint);color:var(--ao-accent);font-size:11px;font-weight:700">MCP</span>
+    <span class="ao-terminal-name">MCP Tester</span>
+    <span class="ao-terminal-meta">
+      <code data-window-path>Local · MCP API</code>
+      <span data-window-status></span>
+    </span>
+    <div class="ao-winctl">
+      <button type="button" class="ao-winbtn cursor-interaction" onclick="this.closest('article').remove()" title="Đóng">✕</button>
+    </div>
+  </div>
+</header>
+<div class="ao-mcp-tester">
+  <div class="ao-mcp-row"><label>URL</label><input data-mcp-url type="url" value="${savedUrl}" placeholder="http://127.0.0.1:8765"></div>
+  <div class="ao-mcp-row"><label>Token</label><input data-mcp-token type="text" value="${savedToken}" placeholder="Bearer token…"></div>
+  <div class="ao-mcp-tools">
+    <button class="ao-mcp-pick" data-tool="list_files" data-args='{"path":"."}'>list_files</button>
+    <button class="ao-mcp-pick" data-tool="read_file" data-args='{"path":"README.md","start_line":1,"end_line":20}'>read_file</button>
+    <button class="ao-mcp-pick" data-tool="write_file" data-args='{"path":"test-mcp.txt","content":"hello MCP"}'>write_file</button>
+    <button class="ao-mcp-pick" data-tool="replace_in_file" data-args='{"path":"test-mcp.txt","old_text":"hello","new_text":"hi"}'>replace_in_file</button>
+    <button class="ao-mcp-pick ao-btn" data-action-list style="margin-left:auto">📋 Danh sách</button>
+  </div>
+  <div class="ao-mcp-row" style="align-items:flex-start"><label style="padding-top:4px">Args</label><textarea class="ao-mcp-args" data-mcp-args rows="3" placeholder='{"path": "README.md"}'></textarea></div>
+  <div class="ao-mcp-row"><label>Tool</label><input data-mcp-tool type="text" placeholder="read_file" style="flex:1"><button class="ao-btn ao-btn-primary" data-action-call style="flex-shrink:0">▶ Gọi</button></div>
+  <pre class="ao-mcp-out" data-mcp-out><span class="m-dim"># MCP Tester · Ctrl+Enter để gọi</span>
+</pre>
+</div>`;
+
+    grid.appendChild(article);
+
+    // --- Wire up logic ---
+    const getUrl   = () => article.querySelector('[data-mcp-url]').value.replace(/\/$/,'');
+    const getTok   = () => article.querySelector('[data-mcp-token]').value.trim();
+    const getArgs  = () => { try{ return JSON.parse(article.querySelector('[data-mcp-args]').value||'{}'); }catch(e){ return null; } };
+    const out      = article.querySelector('[data-mcp-out]');
+
+    function write(html){ out.innerHTML += html + '\n'; out.scrollTop = out.scrollHeight; }
+    function clear(){ out.innerHTML = ''; }
+
+    function savePrefs(){
+      localStorage.setItem('ao-mcp-tester-url', getUrl());
+      localStorage.setItem('ao-mcp-tester-token', getTok());
+    }
+
+    async function listTools(){
+      savePrefs(); clear();
+      write(`<span class="m-dim">POST ${getUrl()}/api/mcp/tools/list</span>`);
+      const t0 = Date.now();
+      try{
+        const r = await fetch(getUrl()+'/api/mcp/tools/list',{method:'POST',headers:{Authorization:'Bearer '+getTok()}});
+        const ms = Date.now()-t0;
+        const data = await r.json();
+        if(r.ok){
+          write(`<span class="m-ok">✓ ${(data.tools||[]).length} tools · ${ms}ms</span>`);
+          (data.tools||[]).forEach(t => write(`  <span class="m-ok">${t.name}</span> <span class="m-dim">— ${(t.description||'').replace(/</g,'&lt;')}</span>`));
+        } else {
+          write(`<span class="m-err">✕ HTTP ${r.status} · ${ms}ms</span>`);
+          write(`<span class="m-dim">${JSON.stringify(data).replace(/</g,'&lt;')}</span>`);
+        }
+      }catch(e){
+        write(`<span class="m-err">✕ ${e}</span>`);
+        write(`<span class="m-warn">Kiểm tra Agent Studio đang chạy và URL đúng.</span>`);
+      }
+    }
+
+    async function callTool(){
+      const name = article.querySelector('[data-mcp-tool]').value.trim();
+      if(!name){ write('<span class="m-warn">Nhập tên tool.</span>'); return; }
+      const args = getArgs();
+      if(args === null){ write('<span class="m-err">JSON args lỗi cú pháp.</span>'); return; }
+      savePrefs(); clear();
+      write(`<span class="m-dim">POST ${getUrl()}/api/mcp/tools/call</span>`);
+      write(`<span class="m-dim">Tool: ${name}  Args: ${JSON.stringify(args).replace(/</g,'&lt;')}</span>`);
+      const t0 = Date.now();
+      try{
+        const r = await fetch(getUrl()+'/api/mcp/tools/call',{
+          method:'POST',
+          headers:{Authorization:'Bearer '+getTok(),'Content-Type':'application/json'},
+          body: JSON.stringify({name, arguments:args})
+        });
+        const ms = Date.now()-t0;
+        const data = await r.json();
+        if(r.ok){
+          write(`<span class="m-ok">✓ ${r.status} OK · ${ms}ms</span>`);
+          (data.content||[]).forEach(c => {
+            if(c.type==='text') write('\n'+c.text.replace(/</g,'&lt;'));
+          });
+          if(!(data.content||[]).length) write(JSON.stringify(data,null,2).replace(/</g,'&lt;'));
+        } else {
+          write(`<span class="m-err">✕ HTTP ${r.status} · ${ms}ms</span>`);
+          write(JSON.stringify(data).replace(/</g,'&lt;'));
+          if(r.status===401) write('<span class="m-warn">Token sai hoặc thiếu header Authorization.</span>');
+          if(r.status===403) write('<span class="m-warn">File bị bảo vệ hoặc ngoài allow_paths.</span>');
+        }
+      }catch(e){
+        write(`<span class="m-err">✕ ${e}</span>`);
+      }
+    }
+
+    // Tool quick-pick
+    article.querySelectorAll('[data-tool]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        article.querySelectorAll('[data-tool]').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        article.querySelector('[data-mcp-tool]').value = btn.dataset.tool;
+        article.querySelector('[data-mcp-args]').value = JSON.stringify(JSON.parse(btn.dataset.args), null, 2);
+      });
+    });
+    article.querySelector('[data-action-list]').addEventListener('click', listTools);
+    article.querySelector('[data-action-call]').addEventListener('click', callTool);
+    article.querySelector('[data-mcp-args]').addEventListener('keydown', e => {
+      if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) callTool();
+    });
+  }
+})();
+</script>
+</div></body></html>

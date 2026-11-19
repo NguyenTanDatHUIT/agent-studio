@@ -27,7 +27,7 @@ class Runners:
 
     def start(self):
         self.config.execution_allowed()
-        providers = [p for p in ('claude', 'codex') if self.config.data.get('providers', {}).get(p, {}).get('command')]
+        providers = [p for p in ('claude', 'codex', 'gemini_web') if self.config.provider_enabled(p)]
         if not providers or not self.config.data.get('tests'):
             raise OrchError('Configure at least one provider and a functional test profile before starting runners')
         for provider in providers:

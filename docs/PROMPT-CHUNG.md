@@ -40,7 +40,11 @@ Nhật ký `NhiDong/NhatKyCongViec/<yyyy-mm-dd>-<đợt>.md` (ngắn: đã làm,
 - Commit: `<feat|fix|refactor>(<miền>): <đợt> <nội dung>` theo thứ tự phụ thuộc; ghi hash trong báo cáo.
 - **Báo cáo ghi ra TỆP** `C:\AgentControl\studio-state\prompts\BAOCAO-<việc>.md`: (1) bảng yêu cầu ↔ `tệp:dòng` thật, (2) hàm công khai mới (chữ ký), (3) số đo cổng + hash commit, (4) "Thấy nhưng không sửa" và câu hỏi cho chủ dự án, (5) subagent nếu dùng. Chi tiết trong báo cáo phải copy từ mã thật kèm `tệp:dòng` (báo cáo cũ từng ghi sai tên dù mã đúng). **Trong terminal chỉ trả đường dẫn tệp + tối đa 3 dòng tóm tắt.**
 - **Dòng ĐẦU của báo cáo (bắt buộc, để PM kiểm):** `Đã đọc PROMPT-CHUNG.md bản 10/11/2026; cổng đã dùng: B1/B2 (liệt kê project); đã chạy test: KHÔNG (hoặc liệt kê nếu có lý do); số lượt đọc tệp ước lượng: N.`
-- **Dòng CUỐI cùng in ra terminal (bắt buộc, để Agent 0 và công cụ phân biệt "xong" với "chờ"):** `HOÀN TẤT: <hash commit cuối>, báo cáo <đường dẫn>` khi đã commit + ghi báo cáo + không còn tiến trình build của bạn; hoặc `ĐANG CHỜ AGENT 0: <lý do, ví dụ chờ báo được build>` khi bạn tạm dừng chờ lệnh. Không in "xong" khi build/tác vụ nền còn chạy.
+- **Dòng CUỐI cùng in ra terminal (bắt buộc; cập nhật 16/11/2026).** Công cụ và Agent 0 dùng dòng này để phân biệt "xong" với "chờ" với "lỗi" (terminal im lặng chưa chứng minh được gì: dashboard chỉ báo cho Agent 0 `[AO] ... yên lặng (chưa xác nhận đã xong)`). Dòng cuối chỉ được là MỘT trong ba dạng, bắt đầu đúng bằng cụm in hoa:
+  1. `HOÀN TẤT: <hash commit cuối>, báo cáo <đường dẫn>` — đã commit, đã ghi báo cáo, không còn tiến trình build/tác vụ nền của bạn.
+  2. `HOÀN TẤT (CHƯA COMMIT): git bị chặn, lệnh commit nằm trong báo cáo <đường dẫn>` — mã và báo cáo đã xong nhưng sandbox chặn `git add`/commit (Agent 0 commit hộ). Dùng dạng này thay vì tự viết "xong" khi không có hash để điền.
+  3. `ĐANG CHỜ AGENT 0: <lý do>` — bạn tạm dừng chờ lệnh: chờ báo được build, chờ lỗi build, có câu hỏi cho chủ dự án, hoặc gặp lỗi mạng/hết quota (ghi rõ: `ĐANG CHỜ AGENT 0: lỗi mạng, cần chạy lại`).
+  Không dùng cách viết khác làm dòng cuối (ví dụ "Phần 1/3 xong, chờ build", "Đã xong"). Khi làm liền nhiều phần (prompt ghi "không chờ build"), xong mỗi phần chỉ ghi vào báo cáo, KHÔNG in dòng cuối; chỉ in dòng cuối khi hết cả gói hoặc khi thật sự dừng chờ. Không in "xong" khi build/tác vụ nền còn chạy.
 - Dòng gõ vào terminal/ô nhập không vượt 500 ký tự.
 
 ## E. Việc REVIEW CHỈ-ĐỌC (khi prompt riêng ghi "review chỉ-đọc")

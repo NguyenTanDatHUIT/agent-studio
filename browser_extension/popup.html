@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 320px; margin: 0; padding: 12px; font: 13px/1.45 system-ui, sans-serif; background: #14171f; color: #e6edf3; }
+    h3 { margin: 0 0 8px; font-size: 14px; }
+    label { display: block; margin: 8px 0 4px; color: #9da7b3; font-size: 12px; }
+    input[type="text"] { width: 100%; box-sizing: border-box; padding: 7px 8px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #e6edf3; }
+    .row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 8px; }
+    button { padding: 7px 12px; border-radius: 6px; border: 1px solid #2f81f7; background: #1f6feb; color: #fff; cursor: pointer; font-weight: 600; }
+    .status { margin-top: 10px; padding: 8px; border-radius: 6px; background: #1c2128; font-size: 12px; word-break: break-word; }
+    .ok { color: #3fb950; }
+    .warn { color: #d29922; }
+  </style>
+</head>
+<body>
+  <h3>Agent Studio · Gemini Bridge</h3>
+  <label for="pair">Chuỗi ghép đôi (dán từ Agent Studio):</label>
+  <input id="pair" type="text" placeholder="http://127.0.0.1:8765|khóa_bí_mật">
+  <div class="row">
+    <label><input id="enabled" type="checkbox" checked> Kích hoạt cầu nối</label>
+    <button id="save" type="button">Lưu & Kết nối</button>
+  </div>
+  <div id="status" class="status warn">Đang kiểm tra trạng thái...</div>
+  <script src="popup.js"></script>
+</body>
+</html>

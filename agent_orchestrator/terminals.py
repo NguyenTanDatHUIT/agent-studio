@@ -26,6 +26,7 @@ from pathlib import Path
 from . import rules
 from .config import OrchError, inside
 from .providers import SESSION
+from .screen import bottom_lines
 from .transcripts import _is_slash_command, append_transcript_entry, title_from_keys
 from .store import chat_busy_message, now
 
@@ -41,7 +42,7 @@ AGENT0_TOOLS = ['enqueue_task', 'enqueue_plan', 'list_workflows', 'cancel_workfl
 # terminal. Claude Code's built-in sub-agent tools and launching an agent CLI through Bash are therefore denied.
 AGENT0_DENIED = ['Agent', 'Task', 'Workflow'] + [f'Bash({cli}:*)' for cli in ('claude', 'claude.exe', 'codex', 'codex.exe', 'agy', 'agy.exe')]
 NOTICE_INTERVAL = 5.0  # seconds between automatic notices typed into Agent 0
-TERMINAL_AGENTS = {'claude': 'Claude', 'codex': 'Codex', 'agy': 'Antigravity'}
+TERMINAL_AGENTS = {'claude': 'Claude', 'codex': 'Codex', 'agy': 'Antigravity', 'gemini_web': 'Gemini Web'}
 ANSI = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]')
 # Every C0/C1 control character except TAB and LF. This removes ESC, so text coming from a task log
 # (or typed by an agent) can never inject terminal escape sequences into a dashboard terminal.
@@ -98,10 +99,13 @@ IDLE_BUSY_CAP = 1200.0   # seconds of silence after which a "busy" marker is tre
 # later finished line (including the HOÀN TẤT/ĐANG CHỜ line the shared prompt asks for) and expire sooner than a hard marker.
 SOFT_BUSY_MARKER = re.compile(r'Working\.\.\.|Editing files\.\.\.|Reading files?\.\.\.|Running command\.\.\.|Spawned \d+ subagents?'
                               r'|chờ \d+ subagent|waiting for \d+ subagents?|\d+ task\(s\)|\.\.\. running', re.IGNORECASE)
-SOFT_DONE_MARKER = re.compile(r'HOÀN TẤT:|ĐANG CHỜ AGENT 0', re.IGNORECASE)
+SOFT_DONE_MARKER = re.compile(r'HOÀN TẤT(?:\s*\([^)\n]*\))?:|ĐANG CHỜ AGENT 0', re.IGNORECASE)  # also "HOÀN TẤT (CHƯA COMMIT):"
 SOFT_BUSY_CAP = 180.0     # seconds of silence after which a soft busy signal is treated as stale
 SPINNER_QUIET_CAP = 30.0  # a real spinner keeps producing output; a spinner line that stayed silent this long is a stale redraw
 REARM_MIN_BYTES = 200     # output needed after an "idle" verdict before the terminal counts as working again
+REARM_BULK_BYTES = 4000   # this much new output (and no resize since) re-arms the notice even without a spinner / busy marker
+ACK_WAIT = 6.0            # seconds after typing a notice into Agent 0 before checking that it shows up in Agent 0's window
+AUTO_NOTE = ' — thông báo tự động của dashboard, không phải yêu cầu của người dùng'
 
 
 def terminal_busy_kind(buffer):
@@ -128,10 +132,28 @@ def terminal_looks_busy(buffer):
     return terminal_busy_kind(buffer) is not None
 
 
-def is_terminal_spinning(buffer):
-    """Check if the tail of the terminal output indicates active spinner / generation."""
+IDLE_FOOTER = re.compile(r'\?\s*for shortcuts', re.IGNORECASE)
+
+
+def is_terminal_spinning(buffer, cols=100, rows=30):
+    """Check if the terminal is actively generating.
+
+    The screen is rebuilt from the byte stream first: a TUI redraws regions with cursor moves, so the last line of the raw
+    stream can be a stale footer. The last two non-empty lines of the rebuilt screen decide when they show a busy footer
+    (spinner / "esc to cancel" / "Generating...") or the idle footer ("? for shortcuts"). Otherwise the last line of the
+    raw stream is used, as before."""
     if not buffer:
         return False
+    try:
+        bottom = bottom_lines(buffer[-12000:], 2, cols, rows)
+    except Exception:
+        bottom = []
+    if bottom:
+        joined = '\n'.join(bottom)
+        if BRAILLE_SPINNERS.search(joined) or SPINNER_STATUS_RE.search(joined):
+            return True
+        if IDLE_FOOTER.search(joined):
+            return False
     raw = bytes(buffer[-4000:])
     text = ANSI.sub('', raw.decode('utf-8', 'replace')).replace('\r\n', '\n').replace('\r', '\n')
     lines = [line.strip() for line in text.split('\n') if line.strip()]
@@ -141,6 +163,39 @@ def is_terminal_spinning(buffer):
     if BRAILLE_SPINNERS.search(last) or SPINNER_STATUS_RE.search(last):
         return True
     return False
+
+
+# Errors that stop an agent without it being "done": reported as an error, never as a quiet/finished terminal.
+ERROR_PATTERNS = (
+    ('hết quota', re.compile(r'quota (?:reached|exceeded)|individual quota|usage limit|rate.?limit(?:ed)?|resource.?exhausted', re.IGNORECASE)),
+    ('lỗi mạng', re.compile(r'network issue|ECONNRESET|ETIMEDOUT|ENOTFOUND|connection (?:error|lost|refused|reset)|fetch failed', re.IGNORECASE)),
+    ('lỗi agent', re.compile(r'agent executor error|stream idle timeout|API Error|Error ID', re.IGNORECASE)),
+)
+ERROR_TAIL = 1500
+
+
+def terminal_error(buffer, cols=100, rows=30):
+    """(label, short excerpt) when the end of the visible output shows a stopping error, else None."""
+    if not buffer:
+        return None
+    try:
+        lines = [line.strip() for line in bottom_lines(buffer[-12000:], 12, cols, rows)]
+    except Exception:
+        lines = []
+    text = '\n'.join(lines)
+    if not text:
+        text = ANSI.sub('', bytes(buffer[-ERROR_TAIL:]).decode('utf-8', 'replace'))
+    text = text[-ERROR_TAIL:]
+    for label, pattern in ERROR_PATTERNS:
+        found = list(pattern.finditer(text))
+        if found:
+            m = found[-1]
+            start = text.rfind('\n', 0, m.start()) + 1
+            end = text.find('\n', m.end())
+            excerpt = re.sub(r'\s+', ' ', text[start:end if end >= 0 else len(text)]).strip()
+            return label, excerpt[:120]
+    return None
+
 
 PSEUDOCONSOLE_ATTRIBUTE = 0x00020016
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
@@ -242,6 +297,7 @@ class Session:
         self.idle = True
         self.idle_notified = True
         self.has_active_work = False
+        self.cols, self.rows = cols, rows
         in_read, in_write, out_read, out_write = (wintypes.HANDLE() for _ in range(4))
         if not k.CreatePipe(ctypes.byref(in_read), ctypes.byref(in_write), None, 0) or \
            not k.CreatePipe(ctypes.byref(out_read), ctypes.byref(out_write), None, 0):
@@ -416,6 +472,8 @@ class Session:
     def resize(self, cols, rows):
         if self.alive and not self.closed:
             self.k.ResizePseudoConsole(self.hpc, COORD(cols, rows))
+            self.cols, self.rows = cols, rows
+            self.resized_at = time.time()
 
     def close(self):
         if self.closed:
@@ -923,6 +981,7 @@ class Terminals:
         else:
             self.idle_rate_limit = NOTICE_INTERVAL
         self.sessions = {}
+        self.gemini_bridge = None  # GeminiBridgeHub, assigned by the web server
         self.lock = threading.RLock()
         self.agent_views = {}     # agent number -> session id, so one agent never gets two windows
         self.dismissed = set()    # 'task:round' keys the user closed; the next round of that agent opens it again
@@ -935,6 +994,13 @@ class Terminals:
         self.last_notice_sent = 0.0
         self.stop_event = threading.Event()
         self.monitor = None
+        # Notices typed into Agent 0 whose appearance in its window has not been checked yet (sent / seen bookkeeping).
+        self.rules_notice = None       # digest of rules the owner changed while Agent 0 was running (typed once by notify_agent0)
+        self.rules_notice_sent = None
+        self.ack_pending = []
+        self.notice_lock = threading.Lock()  # the monitor thread and the window button never type into Agent 0 at the same time
+        self.notices_sent = 0
+        self.notices_unconfirmed = 0
 
     def resolve_id(self, ref):
         """Accept 'agent 1', 'agent-1', 'Agent 1', 'codex-1', 'codex#1', 'Codex #1', 'codex 1' and 'task 1a2b3c4d'."""
@@ -973,12 +1039,15 @@ class Terminals:
         """Update idle status for an interactive agent terminal based on debounce and spinner check."""
         if getattr(s, 'kind', None) != 'agent' or not getattr(s, 'alive', False) or getattr(s, 'closed', False) or getattr(s, 'exit_code', None) is not None:
             return getattr(s, 'idle', False)
+        if getattr(s, 'managed_idle', False):
+            return getattr(s, 'idle', False)  # browser bridge: idle only when the Gemini reply/tool loop ends, never by silence
         if now is None:
             now = time.time()
         if not getattr(s, 'has_active_work', False):
             s.idle = True
             return True
         debounce = self.idle_debounce
+        cols, rows = getattr(s, 'cols', 100), getattr(s, 'rows', 30)
         last_out = getattr(s, 'last_output_time', getattr(s, 'created', now))
         last_in = getattr(s, 'last_input', 0.0)
         cond = getattr(s, 'cond', None)
@@ -996,9 +1065,15 @@ class Terminals:
             # "Idle" must not be permanent: a terminal that was reported early (build, subagent, waiting) and then resumes would
             # otherwise never be reported again when it really finishes.
             at = getattr(s, 'idle_offset', None)
-            if at is not None and end - at >= REARM_MIN_BYTES and (is_terminal_spinning(buf) or terminal_looks_busy(buf)):
+            if at is not None and end - at >= REARM_MIN_BYTES and (is_terminal_spinning(buf, cols, rows) or terminal_looks_busy(buf)):
                 s.idle, s.idle_notified, s.idle_offset = False, False, None
                 s.idle_reason = 'resumed'
+                return False
+            # A lot of new output after the "idle" verdict means real work resumed even if no spinner is on screen right now
+            # (it may have ended between two ticks). A resize redraws the whole TUI, so output after a resize does not count.
+            if at is not None and end - at >= REARM_BULK_BYTES and getattr(s, 'resized_at', 0.0) <= getattr(s, 'idle_at', 0.0):
+                s.idle, s.idle_notified, s.idle_offset = False, False, None
+                s.idle_reason = 'resumed-output'
                 return False
             return True
         quiet = now - last_out
@@ -1006,7 +1081,7 @@ class Terminals:
         reason = None
         if quiet < debounce or now - last_in < debounce:
             reason = 'debounce'
-        elif is_terminal_spinning(buf) and quiet < SPINNER_QUIET_CAP:
+        elif is_terminal_spinning(buf, cols, rows) and quiet < SPINNER_QUIET_CAP:
             reason = 'spinner'
         elif kind == 'hard' and quiet < IDLE_BUSY_CAP:
             reason = 'busy-marker'
@@ -1016,6 +1091,7 @@ class Terminals:
         if reason is None:
             s.idle = True
             s.idle_offset = end
+            s.idle_at = now
             return True
         return False
 
@@ -1089,13 +1165,91 @@ class Terminals:
                     self.notify_agent0()
                 except Exception:
                     pass
+                try:
+                    self.check_acks()
+                except Exception:
+                    pass
 
         self.monitor = threading.Thread(target=loop, daemon=True, name='task-terminals')
         self.monitor.start()
+    def _tail(self, s, size=12000):
+        cond = getattr(s, 'cond', None)
+        if cond:
+            with cond:
+                return bytearray(getattr(s, 'buffer', b'')[-size:])
+        return bytearray(getattr(s, 'buffer', b'')[-size:])
+
+    def _type_notice(self, session, line, now, source='notice'):
+        """Type one automatic line into Agent 0 (audited) and remember it so check_acks can confirm it reached the window."""
+        line = re.sub(r'\s+', ' ', clean(line)).strip()
+        sha = hashlib.sha256(line.encode('utf-8')).hexdigest()
+        entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
+                 'sha256': sha, 'preview': line[:200], 'source': source}
+        with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+            audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        with self.notice_lock:
+            session.write(line, system=True)
+            time.sleep(.15)
+            session.write(chr(13), system=True)
+        self.last_notice_sent = now
+        self.notices_sent += 1
+        if hasattr(session, 'buffer'):
+            self.ack_pending.append({'session': session, 'head': re.sub(r'\s+', '', line)[:25], 'sha': sha, 'sent': now})
+            del self.ack_pending[:-20]
+        return line
+
+    def notify_done(self, ref):
+        """The owner pressed "báo hoàn thành" on an agent window: type one line into Agent 0 saying the owner confirms that agent
+        finished. Unlike the automatic lines this is a person's statement, so it is sent at once (no quiet/idle guess), but it
+        still waits while someone is typing in Agent 0 so the two texts never mix."""
+        s = self.get(ref)
+        if getattr(s, 'kind', None) != 'agent' or s.id == 'agent0':
+            raise OrchError('Chỉ cửa sổ agent tương tác mới báo hoàn thành được')
+        session = self.sessions.get('agent0')
+        if session is None or not getattr(session, 'alive', False) or getattr(session, 'closed', False):
+            raise OrchError('Agent 0 chưa mở: mở Agent 0 rồi báo lại')
+        now = time.time()
+        if now - getattr(session, 'last_input', 0) < 4:
+            raise OrchError('Agent 0 đang có người gõ: đợi vài giây rồi báo lại')
+        line = (f"[AO] Chủ dự án xác nhận {s.id} đã hoàn thành (bấm nút trên cửa sổ, không phải thông báo tự động). "
+                f"Vẫn đối chiếu commit và báo cáo trước khi nghiệm thu. Trạng thái xem ở read_terminal({s.id}).")
+        sent = self._type_notice(session, line, now, 'button')
+        if getattr(s, 'idle', False):
+            s.idle_notified = True  # the automatic "quiet" line for this finish would only repeat it
+        return {'ok': True, 'line': sent}
+
+    def check_acks(self, now=None):
+        """Sent / received bookkeeping: did a notice typed into Agent 0 actually show up in its window? Logged to the audit file
+        (source 'ack', seen true/false); notices_unconfirmed counts the ones that did not, so a lost notice is no longer silent."""
+        if not self.ack_pending:
+            return 0
+        now = time.time() if now is None else now
+        keep, done = [], 0
+        for item in self.ack_pending:
+            if now - item['sent'] < ACK_WAIT:
+                keep.append(item)
+                continue
+            session = item['session']
+            text = ANSI.sub('', bytes(self._tail(session, 8000)).decode('utf-8', 'replace'))
+            seen = item['head'] in re.sub(r'\s+', '', text)
+            if not seen:
+                self.notices_unconfirmed += 1
+            entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0',
+                     'sha256': item['sha'], 'source': 'ack', 'seen': seen, 'waited': round(now - item['sent'], 1)}
+            try:
+                with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
+                    audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            except OSError:
+                pass
+            done += 1
+        self.ack_pending = keep
+        return done
 
     def notify_agent0(self):
-        """Tell Agent 0, in its own terminal, that agents finished or a workflow moved on. Only ids and statuses
-        are typed (never worker output), one line at most every few seconds, and never while a person is typing."""
+        """Tell Agent 0, in its own terminal, what happened: workflow notices, terminals that went quiet and terminals that
+        stopped on an error. Only ids and statuses are typed (never worker output
+        beyond a short error excerpt), one line at most every few seconds, and never while a person is typing.
+        "Quiet" is a hint, not proof of completion: the wording says so."""
         session = self.sessions.get('agent0')
         if session is None or not getattr(session, 'alive', False) or getattr(session, 'closed', False):
             self.notice_cursor = None
@@ -1104,7 +1258,9 @@ class Terminals:
             self.notice_cursor = (session, self.db.last_notice())  # only news from after this Agent 0 started
             for s in self.sessions.values():
                 if getattr(s, 'kind', None) == 'agent' and getattr(s, 'idle', False):
-                    s.idle_notified = True
+                    # A terminal that already did work and is quiet is reported once to the NEW Agent 0 (it never saw the old
+                    # notice); one that never had work stays silent.
+                    s.idle_notified = not getattr(s, 'has_active_work', False)
             return
         if not self.db.setting('notify_agent0', True):
             self.notice_cursor = (session, self.db.last_notice())
@@ -1118,18 +1274,20 @@ class Terminals:
             line = '[AO] ' + '; '.join(i['text'] for i in items)
             if len(line) > 600:
                 line = line[:590] + '…'
-            line += ' — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Xem get_task / list_workflows.'
-            line = re.sub(r'\s+', ' ', clean(line)).strip()
-            entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
-                     'sha256': hashlib.sha256(line.encode('utf-8')).hexdigest(), 'preview': line[:200], 'source': 'notice'}
-            with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
-                audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
-            session.write(line, system=True)
-            time.sleep(.15)
-            session.write(chr(13), system=True)
+            line += AUTO_NOTE + '. Xem get_task / list_workflows.'
+            self._type_notice(session, line, now)
             self.notice_cursor = (session, items[-1]['id'])
-            self.last_notice_sent = now
             return
+
+        digest = self.rules_notice
+        if digest is not None:
+            if digest == self.db.setting(rules.APPLIED_KEY, None) or digest == self.rules_notice_sent:
+                self.rules_notice = None   # Agent 0 already has this version
+            else:
+                self._type_notice(session, f'[AO] Quy tắc điều phối của chủ máy vừa đổi (bản {digest}){AUTO_NOTE}. '
+                                  'Gọi get_orchestration_rules để đọc bản mới trước khi giao việc tiếp.', now, 'rules')
+                self.rules_notice, self.rules_notice_sent = None, digest
+                return
 
         notify_enabled = getattr(self.cfg, 'terminal_idle_notify', True)
         if isinstance(getattr(self.cfg, 'data', None), dict):
@@ -1137,6 +1295,8 @@ class Terminals:
         if not notify_enabled:
             return
 
+        # Quiet terminals and terminals that stopped on an error, in ONE line.
+        quiet, errors, notes = [], [], []
         for s in list(self.sessions.values()):
             if getattr(s, 'kind', None) != 'agent' or s.id == 'agent0' or not getattr(s, 'alive', False) or getattr(s, 'closed', False) or getattr(s, 'exit_code', None) is not None:
                 continue
@@ -1144,31 +1304,60 @@ class Terminals:
                 self.update_interactive_idle(s, now)
             except Exception:
                 continue  # one broken terminal must not stop the others from being reported
-            if getattr(s, 'idle', False) and not getattr(s, 'idle_notified', False):
-                provider = getattr(s, 'provider', None)
-                agent_n = getattr(s, 'agent', None)
-                report_note = ""
-                if provider and agent_n is not None:
-                    report_rel = Path('reports') / f"{provider}-{agent_n}.md"
-                    cwd_val = getattr(s, 'cwd', None)
-                    cwd_report = Path(cwd_val) / report_rel if cwd_val else None
-                    repo_val = getattr(self.cfg, 'repo', None)
-                    repo_report = Path(repo_val) / report_rel if repo_val else None
-                    if (cwd_report and cwd_report.is_file()) or (repo_report and repo_report.is_file()):
-                        report_note = f" Báo cáo: reports/{provider}-{agent_n}.md"
+            if not (getattr(s, 'idle', False) and not getattr(s, 'idle_notified', False)):
+                continue
+            s.idle_notified = True
+            found = terminal_error(self._tail(s), getattr(s, 'cols', 100), getattr(s, 'rows', 30))
+            if found:
+                errors.append(f"{s.id} có lỗi ({found[0]}): {found[1]}")
+                continue
+            quiet.append(s.id)
+            provider, agent_n = getattr(s, 'provider', None), getattr(s, 'agent', None)
+            if provider and agent_n is not None:
+                report_rel = Path('reports') / f"{provider}-{agent_n}.md"
+                cwd_val, repo_val = getattr(s, 'cwd', None), getattr(self.cfg, 'repo', None)
+                if (cwd_val and (Path(cwd_val) / report_rel).is_file()) or (repo_val and (Path(repo_val) / report_rel).is_file()):
+                    notes.append(f"{s.id}: có reports/{provider}-{agent_n}.md")
+        if quiet or errors:
+            parts = []
+            if quiet:
+                parts.append(', '.join(quiet) + ' yên lặng (chưa xác nhận đã xong)')
+            parts.extend(errors)
+            line = '[AO] ' + '; '.join(parts)
+            if notes:
+                line += '. Báo cáo: ' + ', '.join(notes)
+            if len(line) > 560:
+                line = line[:550] + '…'
+            ids = quiet + [e.split(' ', 1)[0] for e in errors]
+            line += AUTO_NOTE + f'. Trạng thái xem ở read_terminal({", ".join(ids)}).'
+            self._type_notice(session, line, now, 'notice')
 
-                line = f"[AO] {s.id} đã xong. Dùng read_terminal({s.id}) để xem kết quả.{report_note}"
-                line = re.sub(r'\s+', ' ', clean(line)).strip()
-                entry = {'time': datetime.now().astimezone().isoformat(timespec='seconds'), 'terminal': 'agent0', 'chars': len(line),
-                         'sha256': hashlib.sha256(line.encode('utf-8')).hexdigest(), 'preview': line[:200], 'source': 'notice'}
-                with (self.cfg.state / 'terminal-audit.jsonl').open('a', encoding='utf-8') as audit:
-                    audit.write(json.dumps(entry, ensure_ascii=False) + '\n')
-                session.write(line, system=True)
-                time.sleep(.15)
-                session.write(chr(13), system=True)
-                s.idle_notified = True
-                self.last_notice_sent = now
-                return
+    def require_common_prompt(self, session, line):
+        """The first work line typed into a fresh agent window must point at the shared prompt (PROMPT-CHUNG.md): rules that only
+        live in Agent 0's memory get dropped after a new chat or a context compaction, a check in code does not. Slash commands
+        (/add-dir, /model) and resumed sessions (which already have their context) are not blocked."""
+        if getattr(session, 'briefed', False) or getattr(session, 'resumed', False) or line.startswith('/'):
+            return
+        try:
+            params = rules.load(self.db)['params']
+            common = rules.common_prompt(self.cfg, params)
+        except (OrchError, sqlite3.Error, OSError):
+            return
+        if common is None:
+            return
+        if rules.mentions_path(line, common):
+            session.briefed = True
+            return
+        raise OrchError(f'Dòng giao việc ĐẦU TIÊN cho {session.id} phải trỏ tới tệp prompt chung. Gửi lại, mở đầu bằng: '
+                        f'"{rules.first_line_template(common)}" (rồi tới nội dung việc). Các dòng sau không cần lặp lại.')
+
+    def rules_changed(self, digest):
+        """The owner saved new orchestration rules. If Agent 0 has not got that version (launched with an older one), queue one
+        notice telling it to call get_orchestration_rules; notify_agent0 types it when Agent 0 is free."""
+        if self.db.setting(rules.APPLIED_KEY, None) == digest or self.rules_notice_sent == digest:
+            return False
+        self.rules_notice = digest
+        return True
 
     def send(self, ref, text):
         """Agent 0 types one line into an interactive agent terminal. Always guarded, audited, rate limited."""
@@ -1194,6 +1383,7 @@ class Terminals:
             raise OrchError('Nội dung rỗng sau khi bỏ ký tự điều khiển')
         if len(line) > SEND_LIMIT:
             raise OrchError(f'Tối đa {SEND_LIMIT} ký tự mỗi lần gửi (đang {len(line)}). Chia nhỏ hoặc dùng enqueue_task.')
+        self.require_common_prompt(session, line)
         with self.lock:
             wait = SEND_INTERVAL - (time.monotonic() - self.last_send.get(session.id, -1e9))
             if wait > 0:
@@ -1413,7 +1603,14 @@ class Terminals:
                     raise OrchError('Unknown agent')
                 if self.cfg.data.get('acknowledge_local_execution') is not True:
                     raise OrchError('Local execution is not enabled in the owner config')
-                cmd_base = self.provider_command(provider)
+                if provider == 'gemini_web':
+                    if not self.cfg.provider_enabled('gemini_web'):
+                        raise OrchError('Provider gemini_web chưa được bật trong cấu hình (providers.gemini_web.enabled).')
+                    if self.gemini_bridge is None:
+                        raise OrchError('Cầu nối Gemini chưa sẵn sàng.')
+                    cmd_base = []
+                else:
+                    cmd_base = self.provider_command(provider)
                 if repo is not None and repo not in self.cfg.repos:
                     raise OrchError('Repo không hợp lệ. Repo có sẵn: ' + ', '.join(self.cfg.repos))
                 if task_id is None:
@@ -1459,6 +1656,9 @@ class Terminals:
                     else:
                         sess_id = None
                         argv = cmd_base
+                elif provider == 'gemini_web':
+                    sess_id = resume  # the Gemini conversation slug; filled in when the first reply reveals the tab's URL
+                    argv = None
                 else:
                     sess_id = resume
                     argv = cmd_base
@@ -1468,7 +1668,8 @@ class Terminals:
             if kind == 'agent0' and key not in self.sessions and len(self.sessions) >= MAX_SESSIONS and not self.evict_finished():
                 raise OrchError(f'Đã mở {MAX_SESSIONS} cửa sổ. Đóng bớt một cửa sổ rồi thử lại.')
 
-            argv = self._shell_wrap(conv_id, argv, resumed=bool(resume))
+            if argv is not None:
+                argv = self._shell_wrap(conv_id, argv, resumed=bool(resume))
 
             # Register conversation in DB
             self.db.conversation_add({
@@ -1503,9 +1704,15 @@ class Terminals:
                 except Exception:
                     pass
 
-            session = Session(key, kind, title, argv, cwd, self.base_env(), cols, rows,
-                              conversation_id=conv_id, transcript_path=transcript_file, session_id=sess_id,
-                              on_title=on_title, on_exit=on_exit, resumed=bool(resume))
+            if provider == 'gemini_web':
+                from .gemini_bridge import BrowserBridgeSession
+                session = BrowserBridgeSession(key, kind, title, cwd, self.gemini_bridge,
+                                               conversation_id=conv_id, transcript_path=transcript_file, session_id=sess_id,
+                                               on_title=on_title, on_exit=on_exit, resumed=bool(resume))
+            else:
+                session = Session(key, kind, title, argv, cwd, self.base_env(), cols, rows,
+                                  conversation_id=conv_id, transcript_path=transcript_file, session_id=sess_id,
+                                  on_title=on_title, on_exit=on_exit, resumed=bool(resume))
             session.provider, session.task_id, session.agent = provider, task_id, number
             self.sessions[key] = session
 

@@ -26,7 +26,7 @@ const api = {
 };
 const rulesParams = { default_provider: 'agy', provider_models: { agy: { model: 'Gemini 4 Argon', effort: 'medium' }, claude: { model: '', effort: '' }, codex: { model: '', effort: '' } },
   max_fix_rounds: 2, max_agents_per_task: 2, max_concurrent_agents: 3, concurrency_enforced: true, single_builder: true, close_on_success: true,
-  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true };
+  hang_minutes: 15, prompt_in_file: true, max_line_chars: 500, report_in_file: true, prompts_dir: '', common_prompt_file: '', common_prompt_enforce: true, subagent_policy: 'allowed', ram_free_warn_mb: 2000, roles_enabled: true };
 const rulesTexts = { rules: '**1. Vai trò.** Bạn chỉ điều phối và nghiệm thu bằng bằng chứng thật. **4. Vòng lặp nghiệm thu.** Sau {MAX_FIX_ROUNDS} lần sửa vẫn chưa đạt thì thay cửa sổ.', constraints: '- Không push, không merge nếu chủ máy chưa yêu cầu.', checklist: '- Đọc git status và git diff của thay đổi thật.' };
 api['/api/orchestration-rules'] = { params: rulesParams, texts: rulesTexts, default: { params: rulesParams, texts: rulesTexts }, preview: 'Xem trước nội dung đã thay biến.', unknown_variables: [],
   digest: 'a', applied_digest: 'b', agent0_running: true, text_limit: 15000, variables: ['REPO', 'PROMPTS_DIR', 'ROLES_DIR', 'PROVIDER', 'PROVIDER_MODEL', 'MAX_FIX_ROUNDS', 'MAX_AGENTS_PER_TASK', 'MAX_CONCURRENT', 'MAX_LINE', 'HANG_MINUTES', 'SUBAGENT_POLICY'],

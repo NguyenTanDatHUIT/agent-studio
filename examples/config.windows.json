@@ -13,5 +13,10 @@
   },
   "tests": {
     "unit": ["C:/Projects/MyApp/.venv/Scripts/python.exe", "-m", "unittest", "discover", "-s", "tests"]
+  },
+  "mcp_server": {
+    "enabled": true,
+    "token": "THAY-BANG-TOKEN-RIENG-CUA-BAN-MIN-16-KY-TU",
+    "allow_paths": null
   }
 }

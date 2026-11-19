@@ -119,7 +119,7 @@ class TestInteractiveIdle(WorkflowBase):
         self.assertTrue(agy.idle_notified)
         self.assertEqual(len(self.agent0.written), 2)
         line, is_system = self.agent0.written[0]
-        self.assertEqual(line, "[AO] agy-5 đã xong. Dùng read_terminal(agy-5) để xem kết quả.")
+        self.assertEqual(line, "[AO] agy-5 yên lặng (chưa xác nhận đã xong) — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-5).")
         self.assertTrue(is_system)
         self.assertEqual(self.agent0.written[1][0], '\r')
 
@@ -177,7 +177,7 @@ class TestInteractiveIdle(WorkflowBase):
 
         self.assertTrue(agy.idle)
         self.assertEqual(len(self.agent0.written), 2)
-        self.assertEqual(self.agent0.written[0][0], "[AO] agy-5 đã xong. Dùng read_terminal(agy-5) để xem kết quả.")
+        self.assertEqual(self.agent0.written[0][0], "[AO] agy-5 yên lặng (chưa xác nhận đã xong) — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-5).")
 
     def test_exclusions_agent0_worker_and_exited(self):
         # 1. Agent 0 itself
@@ -229,7 +229,7 @@ class TestInteractiveIdle(WorkflowBase):
         self.t.notify_agent0()
 
         notice = self.agent0.written[0][0]
-        self.assertEqual(notice, "[AO] agy-5 đã xong. Dùng read_terminal(agy-5) để xem kết quả.")
+        self.assertEqual(notice, "[AO] agy-5 yên lặng (chưa xác nhận đã xong) — thông báo tự động của dashboard, không phải yêu cầu của người dùng. Trạng thái xem ở read_terminal(agy-5).")
         self.assertNotIn("SYSTEM OVERRIDE", notice)
         self.assertNotIn("Malicious", notice)
 
@@ -266,7 +266,7 @@ class TestInteractiveIdle(WorkflowBase):
         self.t.notify_agent0()
 
         notice = self.agent0.written[0][0]
-        self.assertIn("[AO] agy-5 đã xong. Dùng read_terminal(agy-5) để xem kết quả.", notice)
+        self.assertIn("[AO] agy-5 yên lặng (chưa xác nhận đã xong)", notice)
         self.assertIn("reports/agy-5.md", notice)
 
     def test_read_terminal_clean_mode_via_tail(self):

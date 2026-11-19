@@ -42,14 +42,18 @@ DEFAULT_PARAMS = {
     'subagent_policy': 'allowed',
     'ram_free_warn_mb': 2000,
     'roles_enabled': True,
+    'common_prompt_file': '',
+    'common_prompt_enforce': True,
 }
+COMMON_PROMPT_NAME = 'PROMPT-CHUNG.md'
 INT_RANGES = {'max_fix_rounds': (0, 10), 'max_agents_per_task': (1, 10), 'max_concurrent_agents': (1, 12), 'hang_minutes': (1, 240),
               'max_line_chars': (80, 4000), 'ram_free_warn_mb': (0, 1_000_000)}
-BOOLS = ('concurrency_enforced', 'single_builder', 'close_on_success', 'prompt_in_file', 'report_in_file', 'roles_enabled')
+BOOLS = ('concurrency_enforced', 'single_builder', 'close_on_success', 'prompt_in_file', 'report_in_file', 'roles_enabled',
+         'common_prompt_enforce')
 
 DEFAULT_RULES = """Quy tắc điều phối agent CMD (chủ máy cấu hình trong Cài đặt). Áp dụng mỗi khi bạn (Agent 0) giao việc cho agent ở cửa sổ CMD qua `open_terminal` / `send_to_terminal` / `read_terminal` / `close_terminal`.
 
-**1. Vai trò.** Bạn chỉ điều phối và nghiệm thu bằng bằng chứng thật; không tự làm thay agent, không chạy `agy`/`claude`/`codex` bằng Bash (kể cả `--version`). Dòng `[AO] <terminal> đã xong` chỉ báo "terminal yên lặng", **không phải bằng chứng việc đã xong**: luôn đọc terminal và tệp kết quả.
+**1. Vai trò.** Bạn chỉ điều phối và nghiệm thu bằng bằng chứng thật; không tự làm thay agent, không chạy `agy`/`claude`/`codex` bằng Bash (kể cả `--version`). Dòng `[AO] <terminal> yên lặng (chưa xác nhận đã xong)` chỉ báo "terminal yên lặng", **không phải bằng chứng việc đã xong**: luôn đọc terminal và tệp kết quả. Dòng `[AO] <terminal> có lỗi (...)` nghĩa là agent dừng vì lỗi (mạng, hết quota), không phải xong. Dòng `[AO] Chủ dự án xác nhận <terminal> đã hoàn thành` do chủ dự án bấm nút: là lời của người, không phải thông báo tự động; vẫn đối chiếu commit và báo cáo.
 
 **2. Khởi tạo agent.** Mở bằng `open_terminal(provider)` (mặc định `{PROVIDER}`), cách nhau ít nhất 1,5 giây. Model mong đợi của `{PROVIDER}` là **{PROVIDER_MODEL}**: đọc terminal xác nhận dòng model trước khi giao việc; sai thì gõ `/model` và nhờ chủ máy chỉnh (bạn không gửi được phím mũi tên). Chờ đăng nhập xong (hết "Signing in…", ô nhập trống) rồi mới gửi. Terminal mới mở ở repo của công cụ: luôn dặn agent chuyển tới `{REPO}` trước. Ô nhập có thể còn chữ nháp của chủ máy: đọc terminal trước khi gửi.
 
@@ -130,6 +134,15 @@ def _prompts_dir(value, repos):
     return str(path)
 
 
+def _common_prompt_file(value):
+    if not isinstance(value, str) or len(value) > 260 or any(ord(c) < 32 for c in value):
+        raise OrchError('Tệp prompt chung không hợp lệ')
+    value = value.strip()
+    if value and not Path(value).is_absolute():
+        raise OrchError('Tệp prompt chung phải là đường dẫn tuyệt đối (hoặc để trống để dùng PROMPT-CHUNG.md trong thư mục prompt)')
+    return value
+
+
 def validate(data, repos=()):
     """Kiểm chặt bản cấu hình gửi lên. Chỉ nhận khoá đã biết, đúng kiểu, đúng miền giá trị. Trả bản đầy đủ đã chuẩn hoá."""
     if not isinstance(data, dict) or set(data) - {'params', 'texts'}:
@@ -178,6 +191,8 @@ def validate(data, repos=()):
             p[key] = value
         elif key == 'prompts_dir':
             p[key] = _prompts_dir(value, repos)
+        elif key == 'common_prompt_file':
+            p[key] = _common_prompt_file(value)
     for key, value in texts.items():
         out['texts'][key] = _text(value, TEXT_TITLES[key])
     return out
@@ -249,7 +264,49 @@ def sync_roles(cfg, params):
     return dest
 
 
-def render(cfg, rules):
+def common_prompt(cfg, params):
+    """Tệp prompt chung mọi agent phải đọc trước khi nhận việc đầu tiên: `common_prompt_file`, hoặc PROMPT-CHUNG.md trong thư mục
+    prompt. None khi chủ máy tắt ép buộc hoặc chưa có tệp (không có tệp thì không có gì để ép)."""
+    if not params.get('common_prompt_enforce', True):
+        return None
+    chosen = (params.get('common_prompt_file') or '').strip()
+    path = Path(chosen) if chosen else prompts_dir(cfg, params) / COMMON_PROMPT_NAME
+    try:
+        return path if path.is_file() else None
+    except OSError:
+        return None
+
+
+def mentions_path(line, path):
+    """Dòng giao việc có chứa đường dẫn tệp (không phân biệt hoa thường, dấu gạch chéo xuôi hay ngược)."""
+    norm = lambda text: str(text).replace('\\', '/').lower()
+    return norm(path) in norm(line)
+
+
+def first_line_template(path):
+    return f'BẮT BUỘC đọc và làm theo {path} trước, rồi đọc PROMPT-<việc>.md và làm.'
+
+
+def top_block(cfg, params):
+    """Năm điều không được bỏ: đặt ở ĐẦU prompt của Agent 0, trước mọi hướng dẫn dài khác."""
+    p_dir = prompts_dir(cfg, params)
+    common = common_prompt(cfg, params)
+    items = []
+    if common is not None:
+        items.append(f'**Giao việc LẦN ĐẦU cho một cửa sổ agent mới:** dòng đầu phải mở bằng "{first_line_template(common)}" '
+                     'Công cụ từ chối dòng đầu thiếu đường dẫn tệp chung này (lệnh bắt đầu bằng `/` và cửa sổ resume thì không bị chặn).')
+    items += [
+        f'**Prompt ghi thành tệp** `{p_dir}/PROMPT-<việc>.md`; dòng gõ vào terminal chỉ trỏ tới tệp, không quá {params["max_line_chars"]} ký tự.',
+        '**`[AO] ... yên lặng` chỉ là gợi ý, không phải "xong".** Một việc xong khi agent in dòng cuối `HOÀN TẤT: <hash>, báo cáo ...` '
+        'hoặc `HOÀN TẤT (CHƯA COMMIT): ...` và bạn đã đối chiếu commit cùng báo cáo; `ĐANG CHỜ AGENT 0: ...` nghĩa là đang chờ, không phải xong.',
+        '**Chép nguyên văn "Ràng buộc chung" vào mọi prompt giao việc;** không push, không merge khi chủ máy chưa yêu cầu.',
+        '**Đầu mỗi phiên, sau khi ngữ cảnh bị nén, và mỗi khi thấy dòng `[AO] Quy tắc điều phối ... vừa đổi`:** gọi `get_orchestration_rules` '
+        'rồi làm theo bản đó. Không làm theo trí nhớ.']
+    numbered = '\n'.join(f'{i}. {text}' for i, text in enumerate(items, 1))
+    return '## Những điều không được bỏ (đọc trước mọi hướng dẫn khác)\n\n' + numbered
+
+
+def render(cfg, rules, with_top=True):
     """Nội dung Agent 0 sẽ nhận sau khi thay biến. Trả (markdown, danh sách biến lạ)."""
     from . import roles as role_lib
     p = rules['params']
@@ -302,7 +359,10 @@ def render(cfg, rules):
             f'Agent cửa sổ CMD: trỏ tệp vai trò tương ứng trong `{values["ROLES_DIR"]}` từ tệp `PROMPT-<việc>.md`.'
         )
     parts.append('### Thiết lập hiện hành\n\n' + '\n'.join(settings))
-    return '\n\n'.join(parts) + '\n', sorted(unknown)
+    body = '\n\n'.join(parts) + '\n'
+    if with_top:
+        body = top_block(cfg, p) + '\n\n' + body
+    return body, sorted(unknown)
 
 
 def digest(markdown):
@@ -324,7 +384,9 @@ def write_generated(cfg, db, core_file):
             core = Path(core_file).read_text(encoding='utf-8').rstrip() + '\n\n'
     except OSError:
         core = ''
-    text = core + '## Quy tắc điều phối agent CMD (chủ máy cấu hình)\n\n' + markdown
+    # Năm điều không được bỏ đứng ĐẦU tệp (trước prompt lõi dài); phần quy tắc bên dưới không lặp lại khối đó.
+    body, _unknown = render(cfg, rules, with_top=False)
+    text = top_block(cfg, rules['params']) + '\n\n' + core + '## Quy tắc điều phối agent CMD (chủ máy cấu hình)\n\n' + body
     try:
         prompts_dir(cfg, rules['params']).mkdir(parents=True, exist_ok=True)
         sync_roles(cfg, rules['params'])

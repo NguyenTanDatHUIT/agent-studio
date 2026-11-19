@@ -27,7 +27,7 @@ DEFINITIONS = [
      'Set remember=false for this task only to start fresh from the base commit instead. '
      'Optionally pass role (e.g. "minimal-change", "backend-architect", "database-optimizer", "frontend-ui", "code-reviewer", "reality-checker", "security-auditor") '
      'to inject a standardized specialist discipline into the worker prompt.',
-     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex']}, 'agent': {'type': 'integer', 'minimum': 1},
+     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex', 'gemini_web']}, 'agent': {'type': 'integer', 'minimum': 1},
              'remember': {'type': 'boolean'}, 'repo': STRING, 'role': {'type': 'string', 'enum': list(ROLE_SLUGS)},
              'prompt': STRING,
              'allow_paths': {'type': 'array', 'items': STRING, 'minItems': 1},
@@ -62,7 +62,7 @@ DEFINITIONS = [
     ('open_terminal', 'Open a NEW interactive agent terminal (claude, codex or agy) in the default repo, like the dashboard CMD button. '
      'Returns its terminal id and agent number; then use send_to_terminal and read_terminal. Owner is asked to approve every call. '
      'Only for delegating work to another agent; for bounded, tested work use enqueue_task instead.',
-     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex', 'agy']}}, ('provider',))),
+     schema({'provider': {'type': 'string', 'enum': ['claude', 'codex', 'agy', 'gemini_web']}}, ('provider',))),
     ('close_terminal', 'Close an interactive terminal that YOU opened with open_terminal (for example to replace an agent that did not finish after '
      'two attempts). It cannot close windows the owner opened, Agent 0 or task-watch windows. The conversation stays in the dashboard history. '
      'Then call open_terminal again for a fresh one. Owner is asked to approve every call.',
@@ -165,36 +165,45 @@ class Server:
         return {'jsonrpc': '2.0', 'id': request_id, 'result': result}
 
     def bridge(self, name, args):
-        import urllib.error
+        import http.client
         import urllib.parse
-        import urllib.request
         try:
             info = json.loads((self.engine.cfg.state / 'terminal-bridge.json').read_text(encoding='utf-8'))
-            base, headers = f"http://127.0.0.1:{int(info['port'])}/api/bridge/terminals", {'X-Bridge-Key': info['key']}
+            port = int(info['port'])
             quoted = urllib.parse.quote(args.get('terminal_id', ''), safe='')
+            req_headers = {'X-Bridge-Key': info['key']}
+            base_path = '/api/bridge/terminals'
             if name == 'list_terminals':
-                request = urllib.request.Request(base, headers=headers)
+                method, path, body = 'GET', base_path, None
             elif name == 'open_terminal':
-                request = urllib.request.Request(f'{base}/open', data=json.dumps({'provider': args['provider']}).encode('utf-8'),
-                                                 headers={**headers, 'Content-Type': 'application/json'}, method='POST')
+                method, path, body = 'POST', f'{base_path}/open', json.dumps({'provider': args['provider']}).encode('utf-8')
+                req_headers['Content-Type'] = 'application/json'
             elif name == 'close_terminal':
-                request = urllib.request.Request(f'{base}/{quoted}/close', data=b'{}',
-                                                 headers={**headers, 'Content-Type': 'application/json'}, method='POST')
+                method, path, body = 'POST', f'{base_path}/{quoted}/close', b'{}'
+                req_headers['Content-Type'] = 'application/json'
             elif name == 'read_terminal':
                 clean_param = '&clean=1' if args.get('clean') else ''
-                request = urllib.request.Request(f"{base}/{quoted}?chars={args.get('chars', 6000)}{clean_param}", headers=headers)
+                method, path, body = 'GET', f"{base_path}/{quoted}?chars={args.get('chars', 6000)}{clean_param}", None
             else:  # send_to_terminal
-                request = urllib.request.Request(f'{base}/{quoted}/input', data=json.dumps({'text': args['text']}).encode('utf-8'),
-                                                 headers={**headers, 'Content-Type': 'application/json'}, method='POST')
-            with urllib.request.urlopen(request, timeout=10) as response:
-                return json.loads(response.read(2_000_000))
-        except urllib.error.HTTPError as exc:  # the dashboard answered: pass its reason on (unknown id, ended, too fast...)
+                method, path, body = 'POST', f'{base_path}/{quoted}/input', json.dumps({'text': args['text']}).encode('utf-8')
+                req_headers['Content-Type'] = 'application/json'
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
             try:
-                reason = json.loads(exc.read(20_000)).get('error')
-            except (OSError, ValueError, AttributeError):
-                reason = None
-            raise OrchError(str(reason or f'Dashboard từ chối yêu cầu (HTTP {exc.code})')[:1500]) from None
-        except (OSError, ValueError, KeyError, urllib.error.URLError):
+                conn.request(method, path, body, req_headers)
+                resp = conn.getresponse()
+                data = resp.read(2_000_000)
+                if resp.status >= 400:  # the dashboard answered: pass its reason on (unknown id, ended, too fast...)
+                    try:
+                        reason = json.loads(data).get('error')
+                    except (OSError, ValueError, AttributeError):
+                        reason = None
+                    raise OrchError(str(reason or f'Dashboard từ chối yêu cầu (HTTP {resp.status})')[:1500])
+                return json.loads(data)
+            finally:
+                conn.close()
+        except OrchError:
+            raise
+        except (OSError, ValueError, KeyError):
             raise OrchError('Dashboard terminals are unavailable; open Agent Studio first') from None
 
     def call(self, name, args):
@@ -204,6 +213,7 @@ class Server:
         if name == 'get_orchestration_rules':
             from . import rules
             data, markdown, unknown = rules.current(e.cfg, e.db)
+            e.db.set_setting(rules.APPLIED_KEY, rules.digest(markdown))  # Agent 0 now holds this version (the dashboard shows it as received)
             return {'rules_markdown': markdown, 'params': data['params'], 'digest': rules.digest(markdown),
                     'unknown_variables': unknown, 'roles_dir': str(rules.roles_dir(e.cfg, data['params'])),
                     'roles': role_choices()}

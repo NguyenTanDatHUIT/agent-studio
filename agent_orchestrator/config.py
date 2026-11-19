@@ -83,9 +83,35 @@ class Config:
             raise OrchError("timeout_seconds must be 1..86400")
         if type(self.output_limit) is not int or not 1024 <= self.output_limit <= 100_000_000:
             raise OrchError("output_limit_bytes must be 1024..100000000")
-        for provider in self.data.get('providers', {}).values():
+        for name, provider in self.data.get('providers', {}).items():
             if not isinstance(provider, dict):
                 raise OrchError("Provider must be an object")
+            if name == 'gemini_web':
+                # Browser bridge: no executable. Only owner switches; the model runs in the user's own Gemini tab.
+                if provider.get('command'):
+                    raise OrchError("gemini_web has no command; it is driven through the browser extension")
+                if set(provider) - {'command', 'model', 'enabled', 'max_turns', 'read_roots'}:
+                    raise OrchError("gemini_web supports only command, model, enabled, max_turns and read_roots")
+                roots = provider.get('read_roots', [])
+                if not isinstance(roots, list) or len(roots) > 5 or any(not isinstance(r, str) for r in roots):
+                    raise OrchError("gemini_web.read_roots must be a list of at most 5 absolute folder paths")
+                for raw_root in roots:
+                    try:
+                        root = Path(raw_root)
+                        if not root.is_absolute() or not root.is_dir():
+                            raise OrchError(f"read_roots: '{raw_root}' must be an existing absolute folder")
+                        root = root.resolve(strict=True)
+                    except OSError as exc:
+                        raise OrchError(f"read_roots: '{raw_root}': {exc}") from exc
+                    # Read-only access to a folder that holds the keys, the config or the queue database would leak them to the model.
+                    if root == root.parent or inside(self.state, root) or inside(self.file, root) or inside(root, self.repo):
+                        raise OrchError(f"read_roots: '{raw_root}' is a drive root, contains the state folder or the owner config, or lies inside the repository")
+                if 'enabled' in provider and type(provider['enabled']) is not bool:
+                    raise OrchError("gemini_web.enabled must be a boolean")
+                turns = provider.get('max_turns', 12)
+                if type(turns) is not int or not 1 <= turns <= 30:
+                    raise OrchError("gemini_web.max_turns must be 1..30")
+                continue
             if provider.get('command'):
                 command(provider['command'])
                 entry = provider['command']
@@ -106,6 +132,20 @@ class Config:
         self.state.mkdir(parents=True, exist_ok=True)
         for name in ('worktrees', 'runs', 'exports'):
             (self.state / name).mkdir(exist_ok=True)
+        # MCP server config (optional)
+        mcp = self.data.get('mcp_server', {})
+        if not isinstance(mcp, dict):
+            raise OrchError("mcp_server must be an object")
+        if 'enabled' in mcp and type(mcp['enabled']) is not bool:
+            raise OrchError("mcp_server.enabled must be a boolean")
+        ap = mcp.get('allow_paths')
+        if ap is not None:
+            if not isinstance(ap, list) or any(not isinstance(p, str) for p in ap):
+                raise OrchError("mcp_server.allow_paths must be a list of strings")
+        fixed_tok = mcp.get('token')
+        if fixed_tok is not None:
+            if not isinstance(fixed_tok, str) or len(fixed_tok) < 16:
+                raise OrchError("mcp_server.token must be a string of at least 16 characters")
 
     def environment(self, agent=False):
         # No inherited GIT_*, PYTHONPATH, NODE_OPTIONS or unrelated API credentials.
@@ -119,6 +159,27 @@ class Config:
                     'GIT_CONFIG_GLOBAL': os.devnull, 'PYTHONUTF8': '1',
                     'PYTHONDONTWRITEBYTECODE': '1'})
         return env
+
+    def mcp_server_enabled(self) -> bool:
+        return bool(self.data.get('mcp_server', {}).get('enabled', False))
+
+    def mcp_allow_paths(self) -> list[str] | None:
+        ap = self.data.get('mcp_server', {}).get('allow_paths')
+        return ap if isinstance(ap, list) else None
+
+    def mcp_fixed_token(self) -> str | None:
+        """Token cố định do chủ máy khai báo trong studio.json; None = tự sinh mỗi lần khởi động."""
+        tok = self.data.get('mcp_server', {}).get('token')
+        return tok if isinstance(tok, str) and len(tok) >= 16 else None
+
+    def provider_enabled(self, name):
+        """True when the provider can be used: a configured CLI, or for gemini_web an explicit enabled switch."""
+        p = self.data.get('providers', {}).get(name)
+        if not isinstance(p, dict):
+            return False
+        if name == 'gemini_web':
+            return p.get('enabled', False) is True
+        return bool(p.get('command'))
 
     def execution_allowed(self):
         if self.data.get('acknowledge_local_execution') is not True:

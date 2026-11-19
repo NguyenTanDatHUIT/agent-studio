@@ -131,13 +131,28 @@ const {JSDOM}=require('jsdom');
   assert(!d.body.textContent.includes('Gõ yêu cầu giao việc tại đây'),'typing hint removed');
   for(const card of cards){
     const buttons=[...card.querySelectorAll('.ao-terminal-head .ao-winctl .ao-winbtn')];
-    assert.equal(buttons.length,4,'settings, minimise, maximise, close');
-    assert(buttons[0].dataset.settings&&buttons[1].dataset.collapse&&buttons[2].dataset.focus&&buttons[3].dataset.termToggle,'buttons in order');
-    assert(buttons[3].classList.contains('ao-winbtn-close'));
+    // Only an interactive agent window (kind 'agent') gets the extra "báo Agent 0 hoàn thành" button, placed first.
+    const interactive=card.dataset.window==='codex-1';
+    const offset=interactive?1:0;
+    assert.equal(buttons.length,4+offset,interactive?'notify, settings, minimise, maximise, close':'settings, minimise, maximise, close');
+    if(interactive)assert(buttons[0].dataset.notifyDone==='codex-1'&&buttons[0].getAttribute('aria-label').startsWith('Báo Agent 0'),'notify button first');
+    assert(buttons[offset].dataset.settings&&buttons[offset+1].dataset.collapse&&buttons[offset+2].dataset.focus&&buttons[offset+3].dataset.termToggle,'buttons in order');
+    assert(buttons[offset+3].classList.contains('ao-winbtn-close'));
     assert.equal(card.querySelector('.ao-terminal-meta').closest('.ao-terminal-head')!==null,true,'id/status sit in the head');
   }
   const agent0Close=d.querySelector('[data-window="agent0"] .ao-winbtn-close');
   assert(agent0Close.getAttribute('aria-label').startsWith('Mở Agent 0')&&agent0Close.querySelector('[data-lucide="play"],svg'),'closed Agent 0 gets an open button');
+  assert.equal(d.querySelectorAll('[data-notify-done]').length,1,'Agent 0 and queue-worker windows have no notify button');
+  {
+    const before=posts.length;
+    d.querySelector('[data-window="codex-1"] [data-notify-done]').click();await flush();
+    assert.equal(posts.length,before+1,'one request per click');
+    assert.equal(posts[posts.length-1].input,'/api/terminals/codex-1/notify-done','posts to the notify-done route');
+    assert(d.querySelector('[data-toast]').textContent.includes('Đã báo Agent 0: codex-1'),'toast confirms the notice');
+    failNext='Agent 0 chưa mở: mở Agent 0 rồi báo lại';
+    d.querySelector('[data-window="codex-1"] [data-notify-done]').click();await flush();
+    assert(d.querySelector('[data-toast]').classList.contains('error')&&d.querySelector('[data-toast]').textContent.includes('Agent 0 chưa mở'),'server error is shown');
+  }
   const taskCard=()=>d.querySelector('[data-window="codex-2"]');
   assert(taskCard().querySelector('[data-window-path]').textContent.includes('codex-2 · nhớ ngữ cảnh'),'agent window shows its id and memory mode');
   assert.equal(taskCard().querySelector('[data-window-status]').getAttribute('aria-label'),'Đang làm');
